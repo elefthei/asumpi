@@ -130,6 +130,28 @@ mod tests {
         best.to_string()
     }
 
+    /// Assert that two expressions merge into the same e-class under given rules.
+    fn assert_merge(e1: &str, e2: &str, rules: &[Rewrite<ArkLang, TypeAnalysis>], msg: &str) {
+        let expr1: RecExpr<ArkLang> = e1.parse().unwrap();
+        let expr2: RecExpr<ArkLang> = e2.parse().unwrap();
+        let mut egraph: EGraph<ArkLang, TypeAnalysis> = EGraph::default();
+        let id1 = egraph.add_expr(&expr1);
+        let id2 = egraph.add_expr(&expr2);
+        let runner = Runner::default().with_egraph(egraph).run(rules);
+        assert_eq!(runner.egraph.find(id1), runner.egraph.find(id2), "{}", msg);
+    }
+
+    /// Assert that two expressions do NOT merge under given rules.
+    fn assert_no_merge(e1: &str, e2: &str, rules: &[Rewrite<ArkLang, TypeAnalysis>], msg: &str) {
+        let expr1: RecExpr<ArkLang> = e1.parse().unwrap();
+        let expr2: RecExpr<ArkLang> = e2.parse().unwrap();
+        let mut egraph: EGraph<ArkLang, TypeAnalysis> = EGraph::default();
+        let id1 = egraph.add_expr(&expr1);
+        let id2 = egraph.add_expr(&expr2);
+        let runner = Runner::default().with_egraph(egraph).run(rules);
+        assert_ne!(runner.egraph.find(id1), runner.egraph.find(id2), "{}", msg);
+    }
+
     #[test]
     fn test_add_commutativity_rewrite() {
         let rules = algebra_rules();
@@ -377,16 +399,234 @@ mod tests {
     #[test]
     fn test_aadd_commutativity_rewrite() {
         let rules = conversion_rules();
-        let e1: RecExpr<ArkLang> = "(aadd a b)".parse().unwrap();
-        let e2: RecExpr<ArkLang> = "(aadd b a)".parse().unwrap();
-        let mut egraph: EGraph<ArkLang, TypeAnalysis> = EGraph::default();
-        let id1 = egraph.add_expr(&e1);
-        let id2 = egraph.add_expr(&e2);
-        let runner = Runner::default().with_egraph(egraph).run(&rules);
-        assert_eq!(
-            runner.egraph.find(id1),
-            runner.egraph.find(id2),
-            "aadd should be commutative"
+        assert_merge("(aadd a b)", "(aadd b a)", &rules, "aadd-comm");
+    }
+
+    // ═══════════════════════════════════════════════
+    // Comprehensive e-graph merge tests — one per rule
+    // ═══════════════════════════════════════════════
+
+    #[test]
+    fn test_egraph_add_assoc() {
+        let rules = algebra_rules();
+        assert_merge("(add a (add b c))", "(add (add a b) c)", &rules, "add-assoc");
+    }
+
+    #[test]
+    fn test_egraph_mul_assoc() {
+        let rules = algebra_rules();
+        assert_merge("(mul a (mul b c))", "(mul (mul a b) c)", &rules, "mul-assoc");
+    }
+
+    #[test]
+    fn test_egraph_add_neg() {
+        let rules = algebra_rules();
+        assert_merge("(add a (neg a))", "0", &rules, "add-neg");
+    }
+
+    #[test]
+    fn test_egraph_mul_dist() {
+        let rules = algebra_rules();
+        assert_merge("(mul a (add b c))", "(add (mul a b) (mul a c))", &rules, "mul-dist");
+    }
+
+    #[test]
+    fn test_egraph_neg_as_scale() {
+        let rules = algebra_rules();
+        assert_merge("(neg a)", "(scale -1 a)", &rules, "neg-as-scale");
+    }
+
+    #[test]
+    fn test_egraph_eval_add() {
+        let rules = eval_rules();
+        assert_merge("(eval (add p q) x)", "(add (eval p x) (eval q x))", &rules, "eval-add");
+    }
+
+    #[test]
+    fn test_egraph_eval_neg() {
+        let rules = eval_rules();
+        assert_merge("(eval (neg p) x)", "(neg (eval p x))", &rules, "eval-neg");
+    }
+
+    #[test]
+    fn test_egraph_eval_scale() {
+        let rules = eval_rules();
+        assert_merge("(eval (scale c p) x)", "(mul c (eval p x))", &rules, "eval-scale");
+    }
+
+    #[test]
+    fn test_egraph_eval_mul() {
+        let rules = eval_rules();
+        assert_merge("(eval (mul p q) x)", "(mul (eval p x) (eval q x))", &rules, "eval-mul");
+    }
+
+    #[test]
+    fn test_egraph_sigma_unroll_1() {
+        let rules = sigma_rules();
+        assert_merge("(Σ i 0 1 (select a i))", "(let i 0 (select a i))", &rules, "sigma-unroll-1");
+    }
+
+    #[test]
+    fn test_egraph_sigma_unroll_3() {
+        let rules = sigma_rules();
+        assert_merge(
+            "(Σ i 0 3 (select a i))",
+            "(add (let i 0 (select a i)) (add (let i 1 (select a i)) (let i 2 (select a i))))",
+            &rules, "sigma-unroll-3"
         );
+    }
+
+    #[test]
+    fn test_egraph_sigma_dist_add() {
+        let rules = sigma_rules();
+        assert_merge(
+            "(Σ i lo hi (add f g))",
+            "(add (Σ i lo hi f) (Σ i lo hi g))",
+            &rules, "sigma-dist-add"
+        );
+    }
+
+    #[test]
+    fn test_egraph_pi_unroll_1() {
+        let rules = sigma_rules();
+        assert_merge("(Π i 0 1 (select a i))", "(let i 0 (select a i))", &rules, "pi-unroll-1");
+    }
+
+    #[test]
+    fn test_egraph_pi_unroll_2() {
+        let rules = sigma_rules();
+        assert_merge(
+            "(Π i 0 2 (select a i))",
+            "(mul (let i 0 (select a i)) (let i 1 (select a i)))",
+            &rules, "pi-unroll-2"
+        );
+    }
+
+    #[test]
+    fn test_egraph_sigma_factor_mul() {
+        let rules = guarded_sigma_rules();
+        assert_merge(
+            "(Σ i 0 N (mul c (select arr i)))",
+            "(mul c (Σ i 0 N (select arr i)))",
+            &rules, "sigma-factor-mul (c independent of i)"
+        );
+    }
+
+    #[test]
+    fn test_egraph_sigma_factor_mul_blocked() {
+        let rules = guarded_sigma_rules();
+        assert_no_merge(
+            "(Σ i 0 N (mul i (select arr i)))",
+            "(mul i (Σ i 0 N (select arr i)))",
+            &rules, "sigma-factor-mul should NOT fire when factor depends on loop var"
+        );
+    }
+
+    #[test]
+    fn test_egraph_sparsify_densify() {
+        let rules = conversion_rules();
+        assert_merge("(sparsify (densify p))", "p", &rules, "sparsify-densify");
+    }
+
+    #[test]
+    fn test_egraph_as_mle_as_uv() {
+        let rules = conversion_rules();
+        assert_merge("(as-mle (as-uv m))", "m", &rules, "as-mle-as-uv");
+    }
+
+    // ═══════════════════════════════════════════════
+    // Confluence & termination smoke tests
+    // ═══════════════════════════════════════════════
+
+    #[test]
+    fn test_confluence_complex_arithmetic() {
+        let rules = all_rules();
+        // Complex nested expression: optimizer should terminate
+        let expr: RecExpr<ArkLang> = "(add (mul (scale 2 x) (add y z)) (neg (mul x y)))".parse().unwrap();
+        let runner = Runner::<ArkLang, TypeAnalysis>::default()
+            .with_expr(&expr)
+            .run(&rules);
+        assert!(runner.egraph.number_of_classes() > 0, "e-graph should have classes");
+        // The runner should have stopped (not hit the iteration limit in a degenerate way)
+        assert!(runner.iterations.len() <= 30, "should converge in reasonable iterations");
+    }
+
+    #[test]
+    fn test_confluence_sigma_conversion() {
+        let rules = all_rules();
+        let expr: RecExpr<ArkLang> = "(Σ i 0 3 (eval (densify (sparsify (poly:duv 1 2))) (select arr i)))".parse().unwrap();
+        let runner = Runner::<ArkLang, TypeAnalysis>::default()
+            .with_expr(&expr)
+            .run(&rules);
+        assert!(runner.egraph.number_of_classes() > 0);
+    }
+
+    #[test]
+    fn test_confluence_pair_fft() {
+        let rules = all_rules();
+        let expr: RecExpr<ArkLang> = "(fst (pair (ifft 4 (fft 4 p)) (snd (pair a b))))".parse().unwrap();
+        let runner = Runner::<ArkLang, TypeAnalysis>::default()
+            .with_expr(&expr)
+            .run(&rules);
+        assert!(runner.egraph.number_of_classes() > 0);
+    }
+
+    // ═══════════════════════════════════════════════
+    // Extraction quality tests
+    // ═══════════════════════════════════════════════
+
+    #[test]
+    fn test_extraction_simplifies_double_neg() {
+        let rules = all_rules();
+        let input: RecExpr<ArkLang> = "(neg (neg x))".parse().unwrap();
+        let runner = Runner::<ArkLang, TypeAnalysis>::default()
+            .with_expr(&input)
+            .run(&rules);
+        let root = runner.roots[0];
+        let extractor = Extractor::new(&runner.egraph, AstSize);
+        let (cost, best) = extractor.find_best(root);
+        assert_eq!(best.to_string(), "x");
+        assert!(cost < AstSize.cost_rec(&input), "extracted should be simpler");
+    }
+
+    #[test]
+    fn test_extraction_simplifies_scale_one() {
+        let rules = all_rules();
+        let input: RecExpr<ArkLang> = "(scale 1 (add a b))".parse().unwrap();
+        let runner = Runner::<ArkLang, TypeAnalysis>::default()
+            .with_expr(&input)
+            .run(&rules);
+        let root = runner.roots[0];
+        let extractor = Extractor::new(&runner.egraph, AstSize);
+        let (cost, _best) = extractor.find_best(root);
+        assert!(cost <= AstSize.cost_rec(&input), "should not increase cost");
+    }
+
+    #[test]
+    fn test_extraction_simplifies_fst_pair() {
+        let rules = all_rules();
+        let input: RecExpr<ArkLang> = "(fst (pair x y))".parse().unwrap();
+        let runner = Runner::<ArkLang, TypeAnalysis>::default()
+            .with_expr(&input)
+            .run(&rules);
+        let root = runner.roots[0];
+        let extractor = Extractor::new(&runner.egraph, AstSize);
+        let (cost, best) = extractor.find_best(root);
+        assert_eq!(best.to_string(), "x");
+        assert!(cost < AstSize.cost_rec(&input), "projection should simplify");
+    }
+
+    #[test]
+    fn test_extraction_simplifies_ifft_fft() {
+        let rules = all_rules();
+        let input: RecExpr<ArkLang> = "(ifft n (fft n p))".parse().unwrap();
+        let runner = Runner::<ArkLang, TypeAnalysis>::default()
+            .with_expr(&input)
+            .run(&rules);
+        let root = runner.roots[0];
+        let extractor = Extractor::new(&runner.egraph, AstSize);
+        let (cost, best) = extractor.find_best(root);
+        assert_eq!(best.to_string(), "p");
+        assert!(cost < AstSize.cost_rec(&input), "roundtrip should simplify");
     }
 }

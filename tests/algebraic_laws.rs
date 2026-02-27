@@ -58,6 +58,14 @@ proptest! {
         prop_assert!(lhs.is_zero());
     }
 
+    // Rule: (add a (neg a)) => 0
+    #[test]
+    fn rule_add_neg_field(a_val in any::<u64>()) {
+        let env = env_with_fields(&[("a", fr(a_val))]);
+        let lhs = eval_str("(add a (neg a))", &env).as_field().unwrap();
+        prop_assert!(lhs.is_zero());
+    }
+
     // Rule: (neg a) => (scale -1 a)
     #[test]
     fn rule_neg_as_scale_field(a_val in any::<u64>()) {
@@ -565,5 +573,23 @@ proptest! {
         let snd = eval_str("(snd (pair a b))", &env).as_field().unwrap();
         prop_assert_eq!(fst, fr(a));
         prop_assert_eq!(snd, fr(b));
+    }
+
+    // optimizer roundtrip: fst(pair(a,b)) optimizes to a
+    #[test]
+    fn optimizer_pair_roundtrip(a in any::<u64>(), b in any::<u64>()) {
+        let env = env_with_fields(&[("a", fr(a)), ("b", fr(b))]);
+        let original = eval_str("a", &env).as_field().unwrap();
+        let optimized = optimize_and_eval("(fst (pair a b))", &env).as_field().unwrap();
+        prop_assert_eq!(original, optimized);
+    }
+
+    // optimizer roundtrip: densify(sparsify(p)) optimizes to p (eval at point)
+    #[test]
+    fn optimizer_conversion_roundtrip(c0 in any::<u64>(), c1 in any::<u64>(), x in any::<u64>()) {
+        let env = env_with_fields(&[("c0", fr(c0)), ("c1", fr(c1)), ("x", fr(x))]);
+        let original = eval_str("(eval (poly:duv c0 c1) x)", &env).as_field().unwrap();
+        let optimized = optimize_and_eval("(eval (densify (sparsify (poly:duv c0 c1))) x)", &env).as_field().unwrap();
+        prop_assert_eq!(original, optimized);
     }
 }
