@@ -1,0 +1,493 @@
+{
+  "language_stats": {
+    "curve_type": "BLS12-381 G1",
+    "egg_compatible": true,
+    "evaluation": "type-dispatched recursive with environment",
+    "field_type": "BLS12-381 Fr (scalar field)",
+    "node_types": {
+      "array_ops": [
+        "mkarray",
+        "select",
+        "store",
+        "alen"
+      ],
+      "comparison": [
+        "eq"
+      ],
+      "control": [
+        "let",
+        "if"
+      ],
+      "conversions": [
+        "densify",
+        "sparsify",
+        "as-uv",
+        "as-mle"
+      ],
+      "eval_queries": [
+        "eval",
+        "deg",
+        "nvars"
+      ],
+      "generic_arithmetic": [
+        "add",
+        "neg",
+        "mul",
+        "inv",
+        "scale",
+        "pow"
+      ],
+      "indexed": [
+        "bound",
+        "Σ",
+        "Π"
+      ],
+      "literals": [
+        "Num",
+        "Symbol"
+      ],
+      "poly_constructors": [
+        "poly:duv",
+        "poly:suv",
+        "poly:dmle",
+        "poly:smle",
+        "poly:mv"
+      ],
+      "poly_specific": [
+        "pdiv",
+        "pmod",
+        "fix"
+      ]
+    },
+    "syntax": "S-expressions (egg-native)",
+    "total_node_types": 35
+  },
+  "summary": {
+    "failed": 0,
+    "pass_rate": "100.0%",
+    "passed": 60,
+    "total": 60
+  },
+  "tests": [
+    {
+      "category": "field_arithmetic",
+      "details": "(add 3 7) = 10 ✓",
+      "passed": true,
+      "test_name": "add basic",
+      "time_us": 38.0
+    },
+    {
+      "category": "field_arithmetic",
+      "details": "(add 10 (neg 3)) = 7 ✓",
+      "passed": true,
+      "test_name": "sub via neg",
+      "time_us": 4.0
+    },
+    {
+      "category": "field_arithmetic",
+      "details": "(mul 6 7) = 42 ✓",
+      "passed": true,
+      "test_name": "mul basic",
+      "time_us": 2.0
+    },
+    {
+      "category": "field_arithmetic",
+      "details": "(add 42 0) = 42 ✓",
+      "passed": true,
+      "test_name": "additive identity",
+      "time_us": 1.0
+    },
+    {
+      "category": "field_arithmetic",
+      "details": "(mul 42 1) = 42 ✓",
+      "passed": true,
+      "test_name": "multiplicative identity",
+      "time_us": 1.0
+    },
+    {
+      "category": "field_arithmetic",
+      "details": "(mul 42 0) = 0 ✓",
+      "passed": true,
+      "test_name": "mul by zero",
+      "time_us": 1.0
+    },
+    {
+      "category": "field_arithmetic",
+      "details": "(neg (neg 5)) = 5 ✓",
+      "passed": true,
+      "test_name": "double negation",
+      "time_us": 1.0
+    },
+    {
+      "category": "field_arithmetic",
+      "details": "(add 99 (neg 99)) = 0 ✓",
+      "passed": true,
+      "test_name": "sub self",
+      "time_us": 1.0
+    },
+    {
+      "category": "field_arithmetic",
+      "details": "(add (add 1 2) (add 3 4)) = 10 ✓",
+      "passed": true,
+      "test_name": "nested add",
+      "time_us": 6.0
+    },
+    {
+      "category": "field_arithmetic",
+      "details": "(mul 3 (add 4 5)) = 27 ✓",
+      "passed": true,
+      "test_name": "distributivity",
+      "time_us": 2.0
+    },
+    {
+      "category": "field_arithmetic",
+      "details": "(pow 2 10) = 1024 ✓",
+      "passed": true,
+      "test_name": "power",
+      "time_us": 2.0
+    },
+    {
+      "category": "field_arithmetic",
+      "details": "3 * inv(3) = Ok(Field(1))",
+      "passed": true,
+      "test_name": "inverse_self_product",
+      "time_us": 8.0
+    },
+    {
+      "category": "field_arithmetic",
+      "details": "42 / 7 = Ok(Field(6))",
+      "passed": true,
+      "test_name": "division",
+      "time_us": 9.0
+    },
+    {
+      "category": "field_arithmetic",
+      "details": "inv(0) = Err(DivisionByZero)",
+      "passed": true,
+      "test_name": "division_by_zero",
+      "time_us": 1.0
+    },
+    {
+      "category": "field_properties",
+      "details": "a+b == b+a with random a,b",
+      "passed": true,
+      "test_name": "add_commutativity",
+      "time_us": 4.0
+    },
+    {
+      "category": "field_properties",
+      "details": "a*b == b*a with random a,b",
+      "passed": true,
+      "test_name": "mul_commutativity",
+      "time_us": 4.0
+    },
+    {
+      "category": "field_properties",
+      "details": "a*(b+c) == a*b + a*c with random a,b,c",
+      "passed": true,
+      "test_name": "distributivity",
+      "time_us": 11.0
+    },
+    {
+      "category": "field_properties",
+      "details": "(a+b)+c == a+(b+c) with random a,b,c",
+      "passed": true,
+      "test_name": "add_associativity",
+      "time_us": 3.0
+    },
+    {
+      "category": "field_properties",
+      "details": "(a*b)*c == a*(b*c) with random a,b,c",
+      "passed": true,
+      "test_name": "mul_associativity",
+      "time_us": 2.0
+    },
+    {
+      "category": "field_properties",
+      "details": "a + (-a) == 0 with random a",
+      "passed": true,
+      "test_name": "additive_inverse",
+      "time_us": 1.0
+    },
+    {
+      "category": "field_properties",
+      "details": "a * inv(a) == 1 with random a",
+      "passed": true,
+      "test_name": "multiplicative_inverse",
+      "time_us": 7.0
+    },
+    {
+      "category": "curve_operations",
+      "details": "P+Q == Q+P",
+      "passed": true,
+      "test_name": "point_add_commutativity",
+      "time_us": 6.0
+    },
+    {
+      "category": "curve_operations",
+      "details": "P + (-P) == O",
+      "passed": true,
+      "test_name": "point_additive_inverse",
+      "time_us": 2.0
+    },
+    {
+      "category": "curve_operations",
+      "details": "3*P == P+P+P",
+      "passed": true,
+      "test_name": "scalar_mul_consistency",
+      "time_us": 18.0
+    },
+    {
+      "category": "curve_operations",
+      "details": "s*(P+Q) == s*P + s*Q",
+      "passed": true,
+      "test_name": "scalar_mul_linearity",
+      "time_us": 538.0
+    },
+    {
+      "category": "curve_operations",
+      "details": "(a+b)*P == a*P + b*P",
+      "passed": true,
+      "test_name": "scalar_distributivity",
+      "time_us": 524.0
+    },
+    {
+      "category": "sigma_pi",
+      "details": "Σ i=0..3 arr[i] = 60",
+      "passed": true,
+      "test_name": "sigma_sum",
+      "time_us": 13.0
+    },
+    {
+      "category": "sigma_pi",
+      "details": "Π i=0..3 arr[i] = 30",
+      "passed": true,
+      "test_name": "pi_product",
+      "time_us": 3.0
+    },
+    {
+      "category": "sigma_pi",
+      "details": "Σ s_i*P_i == MSM result",
+      "passed": true,
+      "test_name": "sigma_msm",
+      "time_us": 301.0
+    },
+    {
+      "category": "polynomial",
+      "details": "1+2x+3x^2 at x=5 = 86",
+      "passed": true,
+      "test_name": "poly_eval",
+      "time_us": 4.0
+    },
+    {
+      "category": "polynomial",
+      "details": "(1+2x)+(3+4x) at x=10 = 64",
+      "passed": true,
+      "test_name": "poly_add",
+      "time_us": 3.0
+    },
+    {
+      "category": "polynomial",
+      "details": "(1+x)^2 at x=3 = 16",
+      "passed": true,
+      "test_name": "poly_mul",
+      "time_us": 14.0
+    },
+    {
+      "category": "polynomial",
+      "details": "Polynomial eval matches Horner form with random coefficients",
+      "passed": true,
+      "test_name": "poly_vs_horner_random",
+      "time_us": 0.0
+    },
+    {
+      "category": "polynomial",
+      "details": "(1+2x+3x²)-(1+2x) at x=2 = 12",
+      "passed": true,
+      "test_name": "psub",
+      "time_us": 0.0
+    },
+    {
+      "category": "polynomial",
+      "details": "p + (-p) at x=7 = 0",
+      "passed": true,
+      "test_name": "pneg",
+      "time_us": 0.0
+    },
+    {
+      "category": "polynomial",
+      "details": "(2x²+3x+1)/(x+1) at x=5 = 11",
+      "passed": true,
+      "test_name": "pdiv",
+      "time_us": 0.0
+    },
+    {
+      "category": "polynomial",
+      "details": "(x²+1) mod (x+1) = 2",
+      "passed": true,
+      "test_name": "pmod",
+      "time_us": 0.0
+    },
+    {
+      "category": "polynomial",
+      "details": "deg(1+2x+3x²) = 2",
+      "passed": true,
+      "test_name": "pdeg",
+      "time_us": 0.0
+    },
+    {
+      "category": "polynomial",
+      "details": "3*(1+x) at x=2 = 9",
+      "passed": true,
+      "test_name": "pscale",
+      "time_us": 0.0
+    },
+    {
+      "category": "mle",
+      "details": "MLE(2vars) at (1,0) = 2",
+      "passed": true,
+      "test_name": "mle_eval",
+      "time_us": 0.0
+    },
+    {
+      "category": "mle",
+      "details": "MLE(3vars) has 3 variables",
+      "passed": true,
+      "test_name": "mle_nvars",
+      "time_us": 0.0
+    },
+    {
+      "category": "mle",
+      "details": "fix x0=1 in MLE(2), eval at x1=0 = 2",
+      "passed": true,
+      "test_name": "mle_fix",
+      "time_us": 0.0
+    },
+    {
+      "category": "mle",
+      "details": "MLE add at (1,1) = 0+1 = 1",
+      "passed": true,
+      "test_name": "mle_add",
+      "time_us": 0.0
+    },
+    {
+      "category": "mvpoly",
+      "details": "2*x0+3*x1+5 at (2,7) = 30",
+      "passed": true,
+      "test_name": "mveval",
+      "time_us": 0.0
+    },
+    {
+      "category": "mvpoly",
+      "details": "deg(x0²·x1) = 3",
+      "passed": true,
+      "test_name": "mvdeg",
+      "time_us": 0.0
+    },
+    {
+      "category": "array",
+      "details": "arr[1] of [10,20,30] = 20",
+      "passed": true,
+      "test_name": "select",
+      "time_us": 0.0
+    },
+    {
+      "category": "array",
+      "details": "len([1,2,3,4,5]) = 5",
+      "passed": true,
+      "test_name": "alen",
+      "time_us": 0.0
+    },
+    {
+      "category": "array",
+      "details": "arr[5] of 2-element array raises error",
+      "passed": true,
+      "test_name": "index_out_of_bounds",
+      "time_us": 0.0
+    },
+    {
+      "category": "array",
+      "details": "store then select = 99",
+      "passed": true,
+      "test_name": "store",
+      "time_us": 0.0
+    },
+    {
+      "category": "control_flow",
+      "details": "let x=5 in x*x = 25",
+      "passed": true,
+      "test_name": "let_binding",
+      "time_us": 0.0
+    },
+    {
+      "category": "control_flow",
+      "details": "let x=3 in let y=4 in x^2+y^2 = 25",
+      "passed": true,
+      "test_name": "nested_let",
+      "time_us": 0.0
+    },
+    {
+      "category": "control_flow",
+      "details": "if 1==1 then 42 else 0 = 42",
+      "passed": true,
+      "test_name": "if_true",
+      "time_us": 0.0
+    },
+    {
+      "category": "control_flow",
+      "details": "if 1==2 then 42 else 0 = 0",
+      "passed": true,
+      "test_name": "if_false",
+      "time_us": 0.0
+    },
+    {
+      "category": "conversions",
+      "details": "densify(5+3x²) at x=2 = 17",
+      "passed": true,
+      "test_name": "densify_suv",
+      "time_us": 0.0
+    },
+    {
+      "category": "conversions",
+      "details": "sparsify(5+3x²) at x=2 = 17",
+      "passed": true,
+      "test_name": "sparsify_duv",
+      "time_us": 0.0
+    },
+    {
+      "category": "conversions",
+      "details": "1-var MLE[3,7] → UV, eval at 2 = 11",
+      "passed": true,
+      "test_name": "as_uv_mle",
+      "time_us": 0.0
+    },
+    {
+      "category": "integration",
+      "details": "parse → display → parse preserves expression",
+      "passed": true,
+      "test_name": "sexpr_roundtrip",
+      "time_us": 0.0
+    },
+    {
+      "category": "integration",
+      "details": "6 e-classes after rewriting",
+      "passed": true,
+      "test_name": "egraph_integration",
+      "time_us": 0.0
+    },
+    {
+      "category": "sparse_poly",
+      "details": "5+3x^2 at x=2 = 17",
+      "passed": true,
+      "test_name": "spoly_eval",
+      "time_us": 0.0
+    },
+    {
+      "category": "sparse_poly",
+      "details": "sparse MLE(2 vars) at (0,0) = 10",
+      "passed": true,
+      "test_name": "smle_eval",
+      "time_us": 0.0
+    }
+  ]
+}

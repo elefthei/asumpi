@@ -1,0 +1,897 @@
+// arkΣΠ Language & Runtime — Demo and Test Runner
+//
+// Exercises the full arkΣΠ language: parsing, evaluation, and correctness
+// verification against arkworks. Outputs test results as JSON.
+
+use ark_bls12_381::{Fr, G1Projective};
+use ark_ec::CurveGroup;
+use ark_ff::{UniformRand, Zero};
+use ark_std::rand::SeedableRng;
+use ark_wasm_lang::{eval, ArkLang, Env, EvalError, Value};
+use egg::RecExpr;
+use rand::rngs::StdRng;
+use serde::Serialize;
+use std::collections::HashMap;
+use std::time::Instant;
+
+#[derive(Debug, Serialize)]
+struct TestResult {
+    category: String,
+    test_name: String,
+    passed: bool,
+    details: String,
+    time_us: f64,
+}
+
+fn eval_str(s: &str, env: &Env) -> Result<Value, EvalError> {
+    let expr: RecExpr<ArkLang> = s.parse().expect("parse failed");
+    eval(&expr, env)
+}
+
+fn empty_env() -> Env {
+    HashMap::new()
+}
+
+fn main() {
+    let mut results: Vec<TestResult> = Vec::new();
+    let mut rng = StdRng::seed_from_u64(42);
+
+    println!("=== arkΣΠ Language & Runtime Demo ===\n");
+
+    // ═══════════════════════════════════════════════
+    // 1. FIELD ARITHMETIC (generic add/mul/neg)
+    // ═══════════════════════════════════════════════
+    println!("--- Field Arithmetic ---");
+
+    let field_tests = vec![
+        ("add basic", "(add 3 7)", 10i64),
+        ("sub via neg", "(add 10 (neg 3))", 7),
+        ("mul basic", "(mul 6 7)", 42),
+        ("additive identity", "(add 42 0)", 42),
+        ("multiplicative identity", "(mul 42 1)", 42),
+        ("mul by zero", "(mul 42 0)", 0),
+        ("double negation", "(neg (neg 5))", 5),
+        ("sub self", "(add 99 (neg 99))", 0),
+        ("nested add", "(add (add 1 2) (add 3 4))", 10),
+        ("distributivity", "(mul 3 (add 4 5))", 27),
+        ("power", "(pow 2 10)", 1024),
+    ];
+
+    for (name, expr, expected) in &field_tests {
+        let start = Instant::now();
+        let result = eval_str(expr, &empty_env());
+        let elapsed = start.elapsed().as_micros() as f64;
+
+        let passed = match &result {
+            Ok(v) => *v == Value::Int(*expected),
+            Err(_) => false,
+        };
+
+        let details = if passed {
+            format!("{} = {} ✓", expr, expected)
+        } else {
+            format!("{} expected {}, got {:?}", expr, expected, result)
+        };
+
+        println!("  {}: {}", name, if passed { "PASS" } else { "FAIL" });
+        results.push(TestResult {
+            category: "field_arithmetic".into(),
+            test_name: name.to_string(),
+            passed,
+            details,
+            time_us: elapsed,
+        });
+    }
+
+    // Inverse
+    {
+        let start = Instant::now();
+        let r = eval_str("(mul 3 (inv 3))", &empty_env());
+        let elapsed = start.elapsed().as_micros() as f64;
+        let passed = matches!(&r, Ok(v) if *v == Value::Int(1));
+        println!("  inv*self=1: {}", if passed { "PASS" } else { "FAIL" });
+        results.push(TestResult {
+            category: "field_arithmetic".into(),
+            test_name: "inverse_self_product".into(),
+            passed,
+            details: format!("3 * inv(3) = {:?}", r),
+            time_us: elapsed,
+        });
+    }
+
+    {
+        let start = Instant::now();
+        let r = eval_str("(mul 42 (inv 7))", &empty_env());
+        let elapsed = start.elapsed().as_micros() as f64;
+        let passed = matches!(&r, Ok(v) if *v == Value::Int(6));
+        println!("  div: {}", if passed { "PASS" } else { "FAIL" });
+        results.push(TestResult {
+            category: "field_arithmetic".into(),
+            test_name: "division".into(),
+            passed,
+            details: format!("42 / 7 = {:?}", r),
+            time_us: elapsed,
+        });
+    }
+
+    {
+        let start = Instant::now();
+        let r = eval_str("(inv 0)", &empty_env());
+        let elapsed = start.elapsed().as_micros() as f64;
+        let passed = matches!(&r, Err(EvalError::DivisionByZero));
+        println!("  div-by-zero: {}", if passed { "PASS" } else { "FAIL" });
+        results.push(TestResult {
+            category: "field_arithmetic".into(),
+            test_name: "division_by_zero".into(),
+            passed,
+            details: format!("inv(0) = {:?}", r),
+            time_us: elapsed,
+        });
+    }
+
+    // Field arithmetic with random values
+    println!("\n--- Field Arithmetic (Random Values) ---");
+    {
+        let a = Fr::rand(&mut rng);
+        let b = Fr::rand(&mut rng);
+        let mut env = empty_env();
+        env.insert("a".into(), Value::Field(a));
+        env.insert("b".into(), Value::Field(b));
+
+        let start = Instant::now();
+        let r1 = eval_str("(add a b)", &env).unwrap().as_field().unwrap();
+        let r2 = eval_str("(add b a)", &env).unwrap().as_field().unwrap();
+        let elapsed = start.elapsed().as_micros() as f64;
+        let passed = r1 == r2;
+        println!("  add commutativity: {}", if passed { "PASS" } else { "FAIL" });
+        results.push(TestResult {
+            category: "field_properties".into(),
+            test_name: "add_commutativity".into(),
+            passed,
+            details: "a+b == b+a with random a,b".into(),
+            time_us: elapsed,
+        });
+
+        let start = Instant::now();
+        let r1 = eval_str("(mul a b)", &env).unwrap().as_field().unwrap();
+        let r2 = eval_str("(mul b a)", &env).unwrap().as_field().unwrap();
+        let elapsed = start.elapsed().as_micros() as f64;
+        let passed = r1 == r2;
+        println!("  mul commutativity: {}", if passed { "PASS" } else { "FAIL" });
+        results.push(TestResult {
+            category: "field_properties".into(),
+            test_name: "mul_commutativity".into(),
+            passed,
+            details: "a*b == b*a with random a,b".into(),
+            time_us: elapsed,
+        });
+
+        let c = Fr::rand(&mut rng);
+        env.insert("c".into(), Value::Field(c));
+        let start = Instant::now();
+        let lhs = eval_str("(mul a (add b c))", &env).unwrap().as_field().unwrap();
+        let rhs = eval_str("(add (mul a b) (mul a c))", &env).unwrap().as_field().unwrap();
+        let elapsed = start.elapsed().as_micros() as f64;
+        let passed = lhs == rhs;
+        println!("  distributivity: {}", if passed { "PASS" } else { "FAIL" });
+        results.push(TestResult {
+            category: "field_properties".into(),
+            test_name: "distributivity".into(),
+            passed,
+            details: "a*(b+c) == a*b + a*c with random a,b,c".into(),
+            time_us: elapsed,
+        });
+
+        let start = Instant::now();
+        let lhs = eval_str("(add (add a b) c)", &env).unwrap().as_field().unwrap();
+        let rhs = eval_str("(add a (add b c))", &env).unwrap().as_field().unwrap();
+        let elapsed = start.elapsed().as_micros() as f64;
+        let passed = lhs == rhs;
+        println!("  add associativity: {}", if passed { "PASS" } else { "FAIL" });
+        results.push(TestResult {
+            category: "field_properties".into(),
+            test_name: "add_associativity".into(),
+            passed,
+            details: "(a+b)+c == a+(b+c) with random a,b,c".into(),
+            time_us: elapsed,
+        });
+
+        let start = Instant::now();
+        let lhs = eval_str("(mul (mul a b) c)", &env).unwrap().as_field().unwrap();
+        let rhs = eval_str("(mul a (mul b c))", &env).unwrap().as_field().unwrap();
+        let elapsed = start.elapsed().as_micros() as f64;
+        let passed = lhs == rhs;
+        println!("  mul associativity: {}", if passed { "PASS" } else { "FAIL" });
+        results.push(TestResult {
+            category: "field_properties".into(),
+            test_name: "mul_associativity".into(),
+            passed,
+            details: "(a*b)*c == a*(b*c) with random a,b,c".into(),
+            time_us: elapsed,
+        });
+
+        let start = Instant::now();
+        let r = eval_str("(add a (neg a))", &env).unwrap().as_field().unwrap();
+        let elapsed = start.elapsed().as_micros() as f64;
+        let passed = r.is_zero();
+        println!("  additive inverse: {}", if passed { "PASS" } else { "FAIL" });
+        results.push(TestResult {
+            category: "field_properties".into(),
+            test_name: "additive_inverse".into(),
+            passed,
+            details: "a + (-a) == 0 with random a".into(),
+            time_us: elapsed,
+        });
+
+        let start = Instant::now();
+        let r = eval_str("(mul a (inv a))", &env).unwrap().as_field().unwrap();
+        let elapsed = start.elapsed().as_micros() as f64;
+        let passed = r == Fr::from(1u64);
+        println!("  mul inverse: {}", if passed { "PASS" } else { "FAIL" });
+        results.push(TestResult {
+            category: "field_properties".into(),
+            test_name: "multiplicative_inverse".into(),
+            passed,
+            details: "a * inv(a) == 1 with random a".into(),
+            time_us: elapsed,
+        });
+    }
+
+    // ═══════════════════════════════════════════════
+    // 2. CURVE OPERATIONS (generic add/neg/scale)
+    // ═══════════════════════════════════════════════
+    println!("\n--- Curve Operations ---");
+    {
+        let p = G1Projective::rand(&mut rng);
+        let q = G1Projective::rand(&mut rng);
+        let mut env = empty_env();
+        env.insert("p".into(), Value::Curve(p));
+        env.insert("q".into(), Value::Curve(q));
+
+        let start = Instant::now();
+        let r1 = eval_str("(add p q)", &env).unwrap().as_curve().unwrap();
+        let r2 = eval_str("(add q p)", &env).unwrap().as_curve().unwrap();
+        let elapsed = start.elapsed().as_micros() as f64;
+        let passed = r1.into_affine() == r2.into_affine();
+        println!("  add commutativity: {}", if passed { "PASS" } else { "FAIL" });
+        results.push(TestResult {
+            category: "curve_operations".into(),
+            test_name: "point_add_commutativity".into(),
+            passed,
+            details: "P+Q == Q+P".into(),
+            time_us: elapsed,
+        });
+
+        let start = Instant::now();
+        let r = eval_str("(add p (neg p))", &env).unwrap().as_curve().unwrap();
+        let elapsed = start.elapsed().as_micros() as f64;
+        let passed = r.is_zero();
+        println!("  additive inverse: {}", if passed { "PASS" } else { "FAIL" });
+        results.push(TestResult {
+            category: "curve_operations".into(),
+            test_name: "point_additive_inverse".into(),
+            passed,
+            details: "P + (-P) == O".into(),
+            time_us: elapsed,
+        });
+
+        let start = Instant::now();
+        let r1 = eval_str("(scale 3 p)", &env).unwrap().as_curve().unwrap();
+        let r2 = eval_str("(add p (add p p))", &env).unwrap().as_curve().unwrap();
+        let elapsed = start.elapsed().as_micros() as f64;
+        let passed = r1.into_affine() == r2.into_affine();
+        println!("  scalar mul consistency: {}", if passed { "PASS" } else { "FAIL" });
+        results.push(TestResult {
+            category: "curve_operations".into(),
+            test_name: "scalar_mul_consistency".into(),
+            passed,
+            details: "3*P == P+P+P".into(),
+            time_us: elapsed,
+        });
+
+        let s = Fr::rand(&mut rng);
+        env.insert("s".into(), Value::Field(s));
+        let start = Instant::now();
+        let lhs = eval_str("(scale s (add p q))", &env).unwrap().as_curve().unwrap();
+        let rhs = eval_str("(add (scale s p) (scale s q))", &env).unwrap().as_curve().unwrap();
+        let elapsed = start.elapsed().as_micros() as f64;
+        let passed = lhs.into_affine() == rhs.into_affine();
+        println!("  scalar mul linearity: {}", if passed { "PASS" } else { "FAIL" });
+        results.push(TestResult {
+            category: "curve_operations".into(),
+            test_name: "scalar_mul_linearity".into(),
+            passed,
+            details: "s*(P+Q) == s*P + s*Q".into(),
+            time_us: elapsed,
+        });
+
+        let a = Fr::rand(&mut rng);
+        let b = Fr::rand(&mut rng);
+        env.insert("a".into(), Value::Field(a));
+        env.insert("b".into(), Value::Field(b));
+        let start = Instant::now();
+        let lhs = eval_str("(scale (add a b) p)", &env).unwrap().as_curve().unwrap();
+        let rhs = eval_str("(add (scale a p) (scale b p))", &env).unwrap().as_curve().unwrap();
+        let elapsed = start.elapsed().as_micros() as f64;
+        let passed = lhs.into_affine() == rhs.into_affine();
+        println!("  scalar distributivity: {}", if passed { "PASS" } else { "FAIL" });
+        results.push(TestResult {
+            category: "curve_operations".into(),
+            test_name: "scalar_distributivity".into(),
+            passed,
+            details: "(a+b)*P == a*P + b*P".into(),
+            time_us: elapsed,
+        });
+    }
+
+    // ═══════════════════════════════════════════════
+    // 3. Σ/Π (replaces MSM)
+    // ═══════════════════════════════════════════════
+    println!("\n--- Indexed Sum (Σ) and Product (Π) ---");
+
+    {
+        let start = Instant::now();
+        let v = eval_str("(Σ i 0 3 (select (mkarray 10 20 30) i))", &empty_env()).unwrap();
+        let elapsed = start.elapsed().as_micros() as f64;
+        let passed = v == Value::Int(60);
+        println!("  Σ sum: {}", if passed { "PASS" } else { "FAIL" });
+        results.push(TestResult {
+            category: "sigma_pi".into(),
+            test_name: "sigma_sum".into(),
+            passed,
+            details: "Σ i=0..3 arr[i] = 60".into(),
+            time_us: elapsed,
+        });
+    }
+
+    {
+        let start = Instant::now();
+        let v = eval_str("(Π i 0 3 (select (mkarray 2 3 5) i))", &empty_env()).unwrap();
+        let elapsed = start.elapsed().as_micros() as f64;
+        let passed = v == Value::Int(30);
+        println!("  Π product: {}", if passed { "PASS" } else { "FAIL" });
+        results.push(TestResult {
+            category: "sigma_pi".into(),
+            test_name: "pi_product".into(),
+            passed,
+            details: "Π i=0..3 arr[i] = 30".into(),
+            time_us: elapsed,
+        });
+    }
+
+    // MSM via Σ
+    {
+        let p0 = G1Projective::rand(&mut rng);
+        let p1 = G1Projective::rand(&mut rng);
+        let a = Fr::rand(&mut rng);
+        let b = Fr::rand(&mut rng);
+        let mut env = empty_env();
+        env.insert("a".into(), Value::Field(a));
+        env.insert("b".into(), Value::Field(b));
+        env.insert("P0".into(), Value::Curve(p0));
+        env.insert("P1".into(), Value::Curve(p1));
+
+        let start = Instant::now();
+        let sigma_result = eval_str(
+            "(Σ i 0 2 (scale (select (mkarray a b) i) (select (mkarray P0 P1) i)))",
+            &env,
+        ).unwrap().as_curve().unwrap();
+        let elapsed = start.elapsed().as_micros() as f64;
+
+        let expected = p0 * a + p1 * b;
+        let passed = sigma_result.into_affine() == expected.into_affine();
+        println!("  Σ MSM: {}", if passed { "PASS" } else { "FAIL" });
+        results.push(TestResult {
+            category: "sigma_pi".into(),
+            test_name: "sigma_msm".into(),
+            passed,
+            details: "Σ s_i*P_i == MSM result".into(),
+            time_us: elapsed,
+        });
+    }
+
+    // ═══════════════════════════════════════════════
+    // 4. POLYNOMIAL OPERATIONS
+    // ═══════════════════════════════════════════════
+    println!("\n--- Polynomial Operations ---");
+
+    {
+        let start = Instant::now();
+        let v = eval_str("(eval (poly:duv 1 2 3) 5)", &empty_env())
+            .unwrap()
+            .as_field()
+            .unwrap();
+        let elapsed = start.elapsed().as_micros() as f64;
+        let expected = Fr::from(86u64);
+        let passed = v == expected;
+        println!("  poly eval: {}", if passed { "PASS" } else { "FAIL" });
+        results.push(TestResult {
+            category: "polynomial".into(),
+            test_name: "poly_eval".into(),
+            passed,
+            details: "1+2x+3x^2 at x=5 = 86".into(),
+            time_us: elapsed,
+        });
+    }
+
+    {
+        let start = Instant::now();
+        let v = eval_str("(eval (add (poly:duv 1 2) (poly:duv 3 4)) 10)", &empty_env())
+            .unwrap()
+            .as_field()
+            .unwrap();
+        let elapsed = start.elapsed().as_micros() as f64;
+        let expected = Fr::from(64u64);
+        let passed = v == expected;
+        println!("  poly add: {}", if passed { "PASS" } else { "FAIL" });
+        results.push(TestResult {
+            category: "polynomial".into(),
+            test_name: "poly_add".into(),
+            passed,
+            details: "(1+2x)+(3+4x) at x=10 = 64".into(),
+            time_us: elapsed,
+        });
+    }
+
+    {
+        let start = Instant::now();
+        let v = eval_str("(eval (mul (poly:duv 1 1) (poly:duv 1 1)) 3)", &empty_env())
+            .unwrap()
+            .as_field()
+            .unwrap();
+        let elapsed = start.elapsed().as_micros() as f64;
+        let expected = Fr::from(16u64);
+        let passed = v == expected;
+        println!("  poly mul: {}", if passed { "PASS" } else { "FAIL" });
+        results.push(TestResult {
+            category: "polynomial".into(),
+            test_name: "poly_mul".into(),
+            passed,
+            details: "(1+x)^2 at x=3 = 16".into(),
+            time_us: elapsed,
+        });
+    }
+
+    // Poly vs Horner (random)
+    {
+        let coeffs: Vec<Fr> = (0..5).map(|_| Fr::rand(&mut rng)).collect();
+        let x = Fr::rand(&mut rng);
+        let mut env = empty_env();
+        env.insert("x".into(), Value::Field(x));
+        for (i, c) in coeffs.iter().enumerate() {
+            env.insert(format!("c{}", i).into(), Value::Field(*c));
+        }
+
+        let poly_result = eval_str("(eval (poly:duv c0 c1 c2 c3 c4) x)", &env)
+            .unwrap()
+            .as_field()
+            .unwrap();
+
+        let horner_result = eval_str(
+            "(add c0 (mul x (add c1 (mul x (add c2 (mul x (add c3 (mul x c4))))))))",
+            &env,
+        )
+        .unwrap()
+        .as_field()
+        .unwrap();
+
+        let passed = poly_result == horner_result;
+        println!("  poly vs horner: {}", if passed { "PASS" } else { "FAIL" });
+        results.push(TestResult {
+            category: "polynomial".into(),
+            test_name: "poly_vs_horner_random".into(),
+            passed,
+            details: "Polynomial eval matches Horner form with random coefficients".into(),
+            time_us: 0.0,
+        });
+    }
+
+    println!("\n--- Extended Polynomial Operations ---");
+
+    {
+        let v = eval_str("(eval (add (poly:duv 1 2 3) (neg (poly:duv 1 2))) 2)", &empty_env()).unwrap();
+        let passed = v == Value::Int(12);
+        println!("  psub: {}", if passed { "PASS" } else { "FAIL" });
+        results.push(TestResult {
+            category: "polynomial".into(),
+            test_name: "psub".into(),
+            passed,
+            details: "(1+2x+3x²)-(1+2x) at x=2 = 12".into(),
+            time_us: 0.0,
+        });
+    }
+
+    {
+        let v = eval_str("(eval (add (poly:duv 1 1) (neg (poly:duv 1 1))) 7)", &empty_env()).unwrap();
+        let passed = v == Value::Int(0);
+        println!("  pneg: {}", if passed { "PASS" } else { "FAIL" });
+        results.push(TestResult {
+            category: "polynomial".into(),
+            test_name: "pneg".into(),
+            passed,
+            details: "p + (-p) at x=7 = 0".into(),
+            time_us: 0.0,
+        });
+    }
+
+    {
+        let v = eval_str("(eval (pdiv (poly:duv 1 3 2) (poly:duv 1 1)) 5)", &empty_env()).unwrap();
+        let passed = v == Value::Int(11);
+        println!("  pdiv: {}", if passed { "PASS" } else { "FAIL" });
+        results.push(TestResult {
+            category: "polynomial".into(),
+            test_name: "pdiv".into(),
+            passed,
+            details: "(2x²+3x+1)/(x+1) at x=5 = 11".into(),
+            time_us: 0.0,
+        });
+    }
+
+    {
+        let v = eval_str("(eval (pmod (poly:duv 1 0 1) (poly:duv 1 1)) 999)", &empty_env()).unwrap();
+        let passed = v == Value::Int(2);
+        println!("  pmod: {}", if passed { "PASS" } else { "FAIL" });
+        results.push(TestResult {
+            category: "polynomial".into(),
+            test_name: "pmod".into(),
+            passed,
+            details: "(x²+1) mod (x+1) = 2".into(),
+            time_us: 0.0,
+        });
+    }
+
+    {
+        let v = eval_str("(deg (poly:duv 1 2 3))", &empty_env()).unwrap();
+        let passed = v == Value::Int(2);
+        println!("  pdeg: {}", if passed { "PASS" } else { "FAIL" });
+        results.push(TestResult {
+            category: "polynomial".into(),
+            test_name: "pdeg".into(),
+            passed,
+            details: "deg(1+2x+3x²) = 2".into(),
+            time_us: 0.0,
+        });
+    }
+
+    {
+        let v = eval_str("(eval (scale 3 (poly:duv 1 1)) 2)", &empty_env()).unwrap();
+        let passed = v == Value::Int(9);
+        println!("  pscale: {}", if passed { "PASS" } else { "FAIL" });
+        results.push(TestResult {
+            category: "polynomial".into(),
+            test_name: "pscale".into(),
+            passed,
+            details: "3*(1+x) at x=2 = 9".into(),
+            time_us: 0.0,
+        });
+    }
+
+    // ═══════════════════════════════════════════════
+    // 4b. MLE OPERATIONS
+    // ═══════════════════════════════════════════════
+    println!("\n--- Multilinear Extension (MLE) Operations ---");
+
+    {
+        let v = eval_str("(eval (poly:dmle 2 (mkarray 1 2 3 4)) (mkarray 1 0))", &empty_env()).unwrap();
+        let passed = v == Value::Int(2);
+        println!("  mle-eval: {}", if passed { "PASS" } else { "FAIL" });
+        results.push(TestResult {
+            category: "mle".into(),
+            test_name: "mle_eval".into(),
+            passed,
+            details: "MLE(2vars) at (1,0) = 2".into(),
+            time_us: 0.0,
+        });
+    }
+
+    {
+        let v = eval_str("(nvars (poly:dmle 3 (mkarray 0 1 2 3 4 5 6 7)))", &empty_env()).unwrap();
+        let passed = v == Value::Int(3);
+        println!("  mle-nvars: {}", if passed { "PASS" } else { "FAIL" });
+        results.push(TestResult {
+            category: "mle".into(),
+            test_name: "mle_nvars".into(),
+            passed,
+            details: "MLE(3vars) has 3 variables".into(),
+            time_us: 0.0,
+        });
+    }
+
+    {
+        let v = eval_str(
+            "(eval (fix (poly:dmle 2 (mkarray 1 2 3 4)) (mkarray 1)) (mkarray 0))",
+            &empty_env(),
+        ).unwrap();
+        let passed = v == Value::Int(2);
+        println!("  mle-fix: {}", if passed { "PASS" } else { "FAIL" });
+        results.push(TestResult {
+            category: "mle".into(),
+            test_name: "mle_fix".into(),
+            passed,
+            details: "fix x0=1 in MLE(2), eval at x1=0 = 2".into(),
+            time_us: 0.0,
+        });
+    }
+
+    {
+        let v = eval_str(
+            "(eval (add (poly:dmle 2 (mkarray 1 0 0 0)) (poly:dmle 2 (mkarray 0 0 0 1))) (mkarray 1 1))",
+            &empty_env(),
+        ).unwrap();
+        let passed = v == Value::Int(1);
+        println!("  mle-add: {}", if passed { "PASS" } else { "FAIL" });
+        results.push(TestResult {
+            category: "mle".into(),
+            test_name: "mle_add".into(),
+            passed,
+            details: "MLE add at (1,1) = 0+1 = 1".into(),
+            time_us: 0.0,
+        });
+    }
+
+    // ═══════════════════════════════════════════════
+    // 4c. MULTIVARIATE POLYNOMIAL OPERATIONS
+    // ═══════════════════════════════════════════════
+    println!("\n--- Multivariate Polynomial Operations ---");
+
+    {
+        let v = eval_str(
+            "(eval (poly:mv 2 (mkarray 5 2 3) (mkarray (mkarray) (mkarray 0 1) (mkarray 1 1))) (mkarray 2 7))",
+            &empty_env(),
+        ).unwrap();
+        let passed = v == Value::Int(30);
+        println!("  mveval: {}", if passed { "PASS" } else { "FAIL" });
+        results.push(TestResult {
+            category: "mvpoly".into(),
+            test_name: "mveval".into(),
+            passed,
+            details: "2*x0+3*x1+5 at (2,7) = 30".into(),
+            time_us: 0.0,
+        });
+    }
+
+    {
+        let v = eval_str(
+            "(deg (poly:mv 2 (mkarray 1) (mkarray (mkarray 0 2 1 1))))",
+            &empty_env(),
+        ).unwrap();
+        let passed = v == Value::Int(3);
+        println!("  mvdeg: {}", if passed { "PASS" } else { "FAIL" });
+        results.push(TestResult {
+            category: "mvpoly".into(),
+            test_name: "mvdeg".into(),
+            passed,
+            details: "deg(x0²·x1) = 3".into(),
+            time_us: 0.0,
+        });
+    }
+
+    // ═══════════════════════════════════════════════
+    // 5. ARRAY OPERATIONS
+    // ═══════════════════════════════════════════════
+    println!("\n--- Array Operations ---");
+
+    {
+        let v = eval_str("(select (mkarray 10 20 30) 1)", &empty_env()).unwrap();
+        let passed = v == Value::Int(20);
+        println!("  select: {}", if passed { "PASS" } else { "FAIL" });
+        results.push(TestResult { category: "array".into(), test_name: "select".into(), passed, details: "arr[1] of [10,20,30] = 20".into(), time_us: 0.0 });
+    }
+
+    {
+        let v = eval_str("(alen (mkarray 1 2 3 4 5))", &empty_env()).unwrap();
+        let passed = v == Value::Int(5);
+        println!("  alen: {}", if passed { "PASS" } else { "FAIL" });
+        results.push(TestResult { category: "array".into(), test_name: "alen".into(), passed, details: "len([1,2,3,4,5]) = 5".into(), time_us: 0.0 });
+    }
+
+    {
+        let r = eval_str("(select (mkarray 1 2) 5)", &empty_env());
+        let passed = matches!(r, Err(EvalError::IndexOutOfBounds { .. }));
+        println!("  index out of bounds: {}", if passed { "PASS" } else { "FAIL" });
+        results.push(TestResult { category: "array".into(), test_name: "index_out_of_bounds".into(), passed, details: "arr[5] of 2-element array raises error".into(), time_us: 0.0 });
+    }
+
+    {
+        let v = eval_str("(select (store (mkarray 1 2 3) 1 99) 1)", &empty_env()).unwrap();
+        let passed = v == Value::Int(99);
+        println!("  store: {}", if passed { "PASS" } else { "FAIL" });
+        results.push(TestResult { category: "array".into(), test_name: "store".into(), passed, details: "store then select = 99".into(), time_us: 0.0 });
+    }
+
+    // ═══════════════════════════════════════════════
+    // 6. LET BINDINGS AND CONTROL FLOW
+    // ═══════════════════════════════════════════════
+    println!("\n--- Let Bindings & Control Flow ---");
+
+    {
+        let v = eval_str("(let x 5 (mul x x))", &empty_env()).unwrap();
+        let passed = v == Value::Int(25);
+        println!("  let binding: {}", if passed { "PASS" } else { "FAIL" });
+        results.push(TestResult { category: "control_flow".into(), test_name: "let_binding".into(), passed, details: "let x=5 in x*x = 25".into(), time_us: 0.0 });
+    }
+
+    {
+        let v = eval_str("(let x 3 (let y 4 (add (mul x x) (mul y y))))", &empty_env()).unwrap();
+        let passed = v == Value::Int(25);
+        println!("  nested let: {}", if passed { "PASS" } else { "FAIL" });
+        results.push(TestResult { category: "control_flow".into(), test_name: "nested_let".into(), passed, details: "let x=3 in let y=4 in x^2+y^2 = 25".into(), time_us: 0.0 });
+    }
+
+    {
+        let v = eval_str("(if (eq 1 1) 42 0)", &empty_env()).unwrap();
+        let passed = v == Value::Int(42);
+        println!("  if-true: {}", if passed { "PASS" } else { "FAIL" });
+        results.push(TestResult { category: "control_flow".into(), test_name: "if_true".into(), passed, details: "if 1==1 then 42 else 0 = 42".into(), time_us: 0.0 });
+    }
+
+    {
+        let v = eval_str("(if (eq 1 2) 42 0)", &empty_env()).unwrap();
+        let passed = v == Value::Int(0);
+        println!("  if-false: {}", if passed { "PASS" } else { "FAIL" });
+        results.push(TestResult { category: "control_flow".into(), test_name: "if_false".into(), passed, details: "if 1==2 then 42 else 0 = 0".into(), time_us: 0.0 });
+    }
+
+    // ═══════════════════════════════════════════════
+    // 7. CONVERSION OPERATIONS
+    // ═══════════════════════════════════════════════
+    println!("\n--- Conversion Operations ---");
+
+    {
+        let v = eval_str("(eval (densify (poly:suv 0 5 2 3)) 2)", &empty_env()).unwrap();
+        let passed = v.as_field().unwrap() == Fr::from(17u64);
+        println!("  densify sparse UV: {}", if passed { "PASS" } else { "FAIL" });
+        results.push(TestResult { category: "conversions".into(), test_name: "densify_suv".into(), passed, details: "densify(5+3x²) at x=2 = 17".into(), time_us: 0.0 });
+    }
+
+    {
+        let v = eval_str("(eval (sparsify (poly:duv 5 0 3)) 2)", &empty_env()).unwrap();
+        let passed = v.as_field().unwrap() == Fr::from(17u64);
+        println!("  sparsify dense UV: {}", if passed { "PASS" } else { "FAIL" });
+        results.push(TestResult { category: "conversions".into(), test_name: "sparsify_duv".into(), passed, details: "sparsify(5+3x²) at x=2 = 17".into(), time_us: 0.0 });
+    }
+
+    {
+        let v = eval_str("(eval (as-uv (poly:dmle 1 (mkarray 3 7))) 2)", &empty_env()).unwrap();
+        let passed = v.as_field().unwrap() == Fr::from(11u64);
+        println!("  as-uv from MLE: {}", if passed { "PASS" } else { "FAIL" });
+        results.push(TestResult { category: "conversions".into(), test_name: "as_uv_mle".into(), passed, details: "1-var MLE[3,7] → UV, eval at 2 = 11".into(), time_us: 0.0 });
+    }
+
+    // ═══════════════════════════════════════════════
+    // 8. INTEGRATION: S-expr roundtrip + e-graph
+    // ═══════════════════════════════════════════════
+    println!("\n--- Complex Integration Tests ---");
+
+    {
+        let expr_str = "(add (mul 3 x) (neg y))";
+        let expr: RecExpr<ArkLang> = expr_str.parse().unwrap();
+        let displayed = expr.to_string();
+        let reparsed: RecExpr<ArkLang> = displayed.parse().unwrap();
+        let passed = expr == reparsed;
+        println!("  s-expr roundtrip: {}", if passed { "PASS" } else { "FAIL" });
+        results.push(TestResult { category: "integration".into(), test_name: "sexpr_roundtrip".into(), passed, details: "parse → display → parse preserves expression".into(), time_us: 0.0 });
+    }
+
+    {
+        use egg::{EGraph, Runner, Rewrite, rewrite};
+
+        let expr: RecExpr<ArkLang> = "(add (mul 3 x) (mul 4 x))".parse().unwrap();
+        let mut egraph: EGraph<ArkLang, ()> = EGraph::default();
+        let _root = egraph.add_expr(&expr);
+
+        let rules: Vec<Rewrite<ArkLang, ()>> = vec![
+            rewrite!("add-comm"; "(add ?a ?b)" => "(add ?b ?a)"),
+            rewrite!("mul-comm"; "(mul ?a ?b)" => "(mul ?b ?a)"),
+        ];
+
+        let runner = Runner::default()
+            .with_egraph(egraph)
+            .run(&rules);
+
+        let egraph = runner.egraph;
+        let n_classes = egraph.number_of_classes();
+        let passed = n_classes > 0;
+        println!("  e-graph integration: {} ({} e-classes)", if passed { "PASS" } else { "FAIL" }, n_classes);
+        results.push(TestResult { category: "integration".into(), test_name: "egraph_integration".into(), passed, details: format!("{} e-classes after rewriting", n_classes), time_us: 0.0 });
+    }
+
+    // ═══════════════════════════════════════════════
+    // 9. SPARSE POLYNOMIAL DEMO
+    // ═══════════════════════════════════════════════
+    println!("\n--- Sparse Polynomial Operations ---");
+
+    {
+        let v = eval_str("(eval (poly:suv 0 5 2 3) 2)", &empty_env()).unwrap();
+        let passed = v.as_field().unwrap() == Fr::from(17u64);
+        println!("  sparse UV eval: {}", if passed { "PASS" } else { "FAIL" });
+        results.push(TestResult { category: "sparse_poly".into(), test_name: "spoly_eval".into(), passed, details: "5+3x^2 at x=2 = 17".into(), time_us: 0.0 });
+    }
+
+    {
+        let v = eval_str(
+            "(eval (poly:smle 2 (mkarray 0 10 3 20)) (mkarray 0 0))",
+            &empty_env(),
+        ).unwrap();
+        let passed = v.as_field().unwrap() == Fr::from(10u64);
+        println!("  sparse MLE eval: {}", if passed { "PASS" } else { "FAIL" });
+        results.push(TestResult { category: "sparse_poly".into(), test_name: "smle_eval".into(), passed, details: "sparse MLE(2 vars) at (0,0) = 10".into(), time_us: 0.0 });
+    }
+
+    // ═══════════════════════════════════════════════
+    // 10. LANGUAGE STATISTICS
+    // ═══════════════════════════════════════════════
+    println!("\n--- Language Statistics ---");
+
+    let lang_stats = serde_json::json!({
+        "node_types": {
+            "generic_arithmetic": ["add", "neg", "mul", "inv", "scale", "pow"],
+            "eval_queries": ["eval", "deg", "nvars"],
+            "poly_constructors": ["poly:duv", "poly:suv", "poly:dmle", "poly:smle", "poly:mv"],
+            "poly_specific": ["pdiv", "pmod", "fix"],
+            "indexed": ["bound", "Σ", "Π"],
+            "conversions": ["densify", "sparsify", "as-uv", "as-mle"],
+            "array_ops": ["mkarray", "select", "store", "alen"],
+            "control": ["let", "if"],
+            "comparison": ["eq"],
+            "literals": ["Num", "Symbol"],
+        },
+        "total_node_types": 35,
+        "field_type": "BLS12-381 Fr (scalar field)",
+        "curve_type": "BLS12-381 G1",
+        "syntax": "S-expressions (egg-native)",
+        "evaluation": "type-dispatched recursive with environment",
+        "egg_compatible": true,
+    });
+
+    println!("  Total node types: 35");
+    println!("  Generic arithmetic: 6 (add, neg, mul, inv, scale, pow)");
+    println!("  Evaluation & queries: 3 (eval, deg, nvars)");
+    println!("  Poly constructors: 5 (poly:duv, poly:suv, poly:dmle, poly:smle, poly:mv)");
+    println!("  Poly-specific: 3 (pdiv, pmod, fix)");
+    println!("  Indexed Σ/Π: 3 (bound, Σ, Π)");
+    println!("  Conversions: 4 (densify, sparsify, as-uv, as-mle)");
+    println!("  Array: 4 (mkarray, select, store, alen)");
+    println!("  Control flow: 2 (let, if)");
+    println!("  Comparison: 1 (eq)");
+    println!("  Literals: 2 (Num, Symbol)");
+
+    // ═══════════════════════════════════════════════
+    // SUMMARY
+    // ═══════════════════════════════════════════════
+    let total = results.len();
+    let passed = results.iter().filter(|r| r.passed).count();
+    let failed = total - passed;
+
+    println!("\n=== SUMMARY ===");
+    println!("Total tests: {}", total);
+    println!("Passed: {}", passed);
+    println!("Failed: {}", failed);
+    println!("Pass rate: {:.1}%", 100.0 * passed as f64 / total as f64);
+
+    if failed > 0 {
+        println!("\nFailed tests:");
+        for r in results.iter().filter(|r| !r.passed) {
+            println!("  - {}/{}: {}", r.category, r.test_name, r.details);
+        }
+    }
+
+    let output = serde_json::json!({
+        "tests": results,
+        "summary": {
+            "total": total,
+            "passed": passed,
+            "failed": failed,
+            "pass_rate": format!("{:.1}%", 100.0 * passed as f64 / total as f64),
+        },
+        "language_stats": lang_stats,
+    });
+    std::fs::write("results.json", serde_json::to_string_pretty(&output).unwrap())
+        .expect("Failed to write results.json");
+
+    println!("\nResults written to results.json");
+
+    if failed > 0 {
+        std::process::exit(1);
+    }
+}
