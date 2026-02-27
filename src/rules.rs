@@ -60,6 +60,8 @@ pub fn conversion_rules() -> Vec<Rewrite<ArkLang, TypeAnalysis>> {
         rewrite!("sparsify-densify"; "(sparsify (densify ?p))" => "?p"),
         rewrite!("as-uv-as-mle"; "(as-uv (as-mle ?p))" => "?p"),
         rewrite!("as-mle-as-uv"; "(as-mle (as-uv ?m))" => "?m"),
+        rewrite!("ifft-fft"; "(ifft ?n (fft ?n ?p))" => "?p"),
+        rewrite!("fft-ifft"; "(fft ?n (ifft ?n ?e))" => "?e"),
     ]
 }
 
@@ -307,6 +309,32 @@ mod tests {
             runner.egraph.find(id1),
             runner.egraph.find(id2),
             "Σ f + Σ g should fuse into Σ (f + g)"
+        );
+    }
+
+    #[test]
+    fn test_fft_ifft_roundtrip_rewrite() {
+        let rules = conversion_rules();
+        let simplified = simplify("(ifft n (fft n p))", &rules);
+        assert_eq!(simplified, "p");
+
+        let simplified2 = simplify("(fft n (ifft n e))", &rules);
+        assert_eq!(simplified2, "e");
+    }
+
+    #[test]
+    fn test_fft_ifft_roundtrip_egraph() {
+        let rules = all_rules();
+        let e1: RecExpr<ArkLang> = "(ifft 8 (fft 8 p))".parse().unwrap();
+        let e2: RecExpr<ArkLang> = "p".parse().unwrap();
+        let mut egraph: EGraph<ArkLang, TypeAnalysis> = EGraph::default();
+        let id1 = egraph.add_expr(&e1);
+        let id2 = egraph.add_expr(&e2);
+        let runner = Runner::default().with_egraph(egraph).run(&rules);
+        assert_eq!(
+            runner.egraph.find(id1),
+            runner.egraph.find(id2),
+            "ifft(n, fft(n, p)) should reduce to p"
         );
     }
 }

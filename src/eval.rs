@@ -13,6 +13,7 @@ use ark_poly::{
     DenseMultilinearExtension, SparseMultilinearExtension,
     DenseUVPolynomial, DenseMVPolynomial,
     MultilinearExtension, Polynomial,
+    EvaluationDomain, GeneralEvaluationDomain,
 };
 use egg::{Id, RecExpr, Symbol};
 
@@ -272,6 +273,64 @@ fn eval_id(expr: &RecExpr<ArkLang>, id: Id, env: &Env) -> Result<Value, EvalErro
         // ── Poly-Specific: PDiv, PMod, Fix ──
         ArkLang::PDiv(_) | ArkLang::PMod(_) | ArkLang::Fix(_) => {
             eval_poly_specific(expr, node, env)
+        }
+
+        // ── FFT / Domain ──
+        ArkLang::Domain([n]) => {
+            let size = eval_id(expr, *n, env)?.as_int()? as usize;
+            let domain = GeneralEvaluationDomain::<Fr>::new(size)
+                .ok_or_else(|| EvalError::TypeError(format!(
+                    "domain: cannot create evaluation domain of size {}", size
+                )))?;
+            let elements: Vec<Value> = domain.elements().map(Value::Field).collect();
+            Ok(Value::Array(elements))
+        }
+
+        ArkLang::Fft([n, p]) => {
+            let size = eval_id(expr, *n, env)?.as_int()? as usize;
+            let domain = GeneralEvaluationDomain::<Fr>::new(size)
+                .ok_or_else(|| EvalError::TypeError(format!(
+                    "fft: cannot create evaluation domain of size {}", size
+                )))?;
+            let vp = eval_id(expr, *p, env)?;
+            let coeffs: Vec<Fr> = match vp {
+                Value::Polynomial(poly) => poly.coeffs.clone(),
+                Value::SparseUVPoly(sp) => {
+                    let deg = sp.degree();
+                    let mut dense = vec![Fr::zero(); deg + 1];
+                    for (i, c) in sp.to_vec().iter() {
+                        if *i <= deg { dense[*i] = *c; }
+                    }
+                    dense
+                }
+                Value::Array(arr) => arr.into_iter()
+                    .map(|v| v.as_field())
+                    .collect::<Result<_, _>>()?,
+                v => return Err(EvalError::TypeError(format!(
+                    "fft: expected polynomial or array, got {}", v.type_name()
+                ))),
+            };
+            let evals = domain.fft(&coeffs);
+            Ok(Value::Array(evals.into_iter().map(Value::Field).collect()))
+        }
+
+        ArkLang::Ifft([n, e]) => {
+            let size = eval_id(expr, *n, env)?.as_int()? as usize;
+            let domain = GeneralEvaluationDomain::<Fr>::new(size)
+                .ok_or_else(|| EvalError::TypeError(format!(
+                    "ifft: cannot create evaluation domain of size {}", size
+                )))?;
+            let ve = eval_id(expr, *e, env)?.as_array()?;
+            let evals: Vec<Fr> = ve.into_iter()
+                .map(|v| v.as_field())
+                .collect::<Result<_, _>>()?;
+            let coeffs = domain.ifft(&evals);
+            // Trim trailing zeros
+            let mut trimmed = coeffs;
+            while trimmed.len() > 1 && trimmed.last().map_or(false, |c| c.is_zero()) {
+                trimmed.pop();
+            }
+            Ok(Value::Polynomial(DensePolynomial::from_coefficients_vec(trimmed)))
         }
 
         // ── Indexed Sum/Product ──
@@ -1292,5 +1351,90 @@ mod tests {
         let expr: RecExpr<ArkLang> =
             "(let N (bound 2 100) N)".parse().unwrap();
         let _ = specialize(&expr, "N".into(), 200);
+    }
+
+    // ── FFT / Domain Tests ──
+
+    #[test]
+    fn test_domain_elements() {
+        // Domain of size 4: should be [1, ω, ω², ω³] where ω^4 = 1
+        let v = eval_str("(domain 4)", &empty_env()).unwrap();
+        let arr = v.as_array().unwrap();
+        assert_eq!(arr.len(), 4);
+        // First element is always 1 (ω^0)
+        assert_eq!(arr[0].as_field().unwrap(), Fr::from(1u64));
+        // ω^4 should equal 1: check that element^4 = 1
+        let omega = arr[1].as_field().unwrap();
+        let mut omega4 = omega;
+        for _ in 1..4 { omega4 *= omega; }
+        assert_eq!(omega4, Fr::from(1u64));
+    }
+
+    #[test]
+    fn test_fft_known_poly() {
+        // FFT of constant polynomial [5] over domain size 4
+        // All evaluations should be 5
+        let v = eval_str("(fft 4 (poly:duv 5))", &empty_env()).unwrap();
+        let arr = v.as_array().unwrap();
+        assert_eq!(arr.len(), 4);
+        for elem in &arr {
+            assert_eq!(elem.as_field().unwrap(), Fr::from(5u64));
+        }
+    }
+
+    #[test]
+    fn test_fft_linear_poly() {
+        // FFT of p(x) = 1 + 2x over domain of size 4
+        // Evaluations at [1, ω, ω², ω³] = [1+2·1, 1+2ω, 1+2ω², 1+2ω³]
+        let env = empty_env();
+        let evals = eval_str("(fft 4 (poly:duv 1 2))", &env).unwrap().as_array().unwrap();
+        let domain_pts = eval_str("(domain 4)", &env).unwrap().as_array().unwrap();
+        for i in 0..4 {
+            let omega_i = domain_pts[i].as_field().unwrap();
+            let expected = Fr::from(1u64) + Fr::from(2u64) * omega_i;
+            assert_eq!(evals[i].as_field().unwrap(), expected);
+        }
+    }
+
+    #[test]
+    fn test_ifft_roundtrip() {
+        // ifft(fft(p)) should recover p
+        let env = empty_env();
+        let original = eval_str("(eval (poly:duv 3 5 7) 42)", &env).unwrap().as_field().unwrap();
+        let recovered = eval_str("(eval (ifft 4 (fft 4 (poly:duv 3 5 7))) 42)", &env).unwrap().as_field().unwrap();
+        assert_eq!(original, recovered);
+    }
+
+    #[test]
+    fn test_fft_from_array() {
+        // FFT should accept Array[Field] as raw coefficients
+        let env = empty_env();
+        let from_poly = eval_str("(fft 4 (poly:duv 1 2 3))", &env).unwrap();
+        let from_arr = eval_str("(fft 4 (mkarray 1 2 3))", &env).unwrap();
+        assert_eq!(from_poly, from_arr);
+    }
+
+    #[test]
+    fn test_fft_from_sparse() {
+        // FFT should accept SparseUVPoly
+        let env = empty_env();
+        let from_dense = eval_str("(fft 4 (poly:duv 5 0 3))", &env).unwrap();
+        let from_sparse = eval_str("(fft 4 (poly:suv 0 5 2 3))", &env).unwrap();
+        assert_eq!(from_dense, from_sparse);
+    }
+
+    #[test]
+    fn test_fft_eval_matches_point_eval() {
+        // FFT evaluations should match point-by-point eval at domain elements
+        let env = empty_env();
+        let evals = eval_str("(fft 8 (poly:duv 1 2 3 4))", &env).unwrap().as_array().unwrap();
+        let domain_pts = eval_str("(domain 8)", &env).unwrap().as_array().unwrap();
+        for i in 0..8 {
+            let pt = domain_pts[i].as_field().unwrap();
+            let mut env2 = empty_env();
+            env2.insert("x".into(), Value::Field(pt));
+            let point_eval = eval_str("(eval (poly:duv 1 2 3 4) x)", &env2).unwrap().as_field().unwrap();
+            assert_eq!(evals[i].as_field().unwrap(), point_eval);
+        }
     }
 }

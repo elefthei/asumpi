@@ -504,4 +504,36 @@ proptest! {
         let rhs = eval_str("(eval (poly:duv c0 c1 c2) x)", &env).as_field().unwrap();
         prop_assert_eq!(lhs, rhs);
     }
+
+    // ifft(n, fft(n, p)) preserves polynomial evaluation
+    #[test]
+    fn fft_ifft_roundtrip(c0 in any::<u64>(), c1 in any::<u64>(), c2 in any::<u64>(), x in any::<u64>()) {
+        let env = env_with_fields(&[("c0", fr(c0)), ("c1", fr(c1)), ("c2", fr(c2)), ("x", fr(x))]);
+        let original = eval_str("(eval (poly:duv c0 c1 c2) x)", &env).as_field().unwrap();
+        let roundtripped = eval_str("(eval (ifft 4 (fft 4 (poly:duv c0 c1 c2))) x)", &env).as_field().unwrap();
+        prop_assert_eq!(original, roundtripped);
+    }
+
+    // fft evaluations match pointwise polynomial evaluation at domain elements
+    #[test]
+    fn fft_matches_point_eval(c0 in any::<u64>(), c1 in any::<u64>()) {
+        let env = env_with_fields(&[("c0", fr(c0)), ("c1", fr(c1))]);
+        // FFT of linear poly c0 + c1*x at domain size 4
+        let evals = eval_str("(fft 4 (poly:duv c0 c1))", &env).as_array().unwrap();
+        let domain_pts = eval_str("(domain 4)", &env).as_array().unwrap();
+        for i in 0..4 {
+            let omega_i = domain_pts[i].as_field().unwrap();
+            let expected = fr(c0) + fr(c1) * omega_i;
+            prop_assert_eq!(evals[i].as_field().unwrap(), expected);
+        }
+    }
+
+    // optimizer roundtrip: optimize(ifft(n, fft(n, p))) evals same as p
+    #[test]
+    fn optimizer_fft_roundtrip(c0 in any::<u64>(), c1 in any::<u64>(), x in any::<u64>()) {
+        let env = env_with_fields(&[("c0", fr(c0)), ("c1", fr(c1)), ("x", fr(x))]);
+        let original = eval_str("(eval (poly:duv c0 c1) x)", &env).as_field().unwrap();
+        let optimized = optimize_and_eval("(eval (ifft 4 (fft 4 (poly:duv c0 c1))) x)", &env).as_field().unwrap();
+        prop_assert_eq!(original, optimized);
+    }
 }

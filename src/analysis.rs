@@ -147,6 +147,23 @@ impl Analysis<ArkLang> for TypeAnalysis {
                 types.insert(ArkType::DenseMLE);
             }
 
+            ArkLang::Domain([a]) => {
+                free_vars.extend(&cd(a).free_vars);
+                types.insert(ArkType::Array);
+            }
+
+            ArkLang::Fft([a, b]) => {
+                free_vars.extend(&cd(a).free_vars);
+                free_vars.extend(&cd(b).free_vars);
+                types.insert(ArkType::Array);
+            }
+
+            ArkLang::Ifft([a, b]) => {
+                free_vars.extend(&cd(a).free_vars);
+                free_vars.extend(&cd(b).free_vars);
+                types.insert(ArkType::DensePoly);
+            }
+
             ArkLang::Bound([a, b]) => {
                 free_vars.extend(&cd(a).free_vars);
                 free_vars.extend(&cd(b).free_vars);

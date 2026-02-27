@@ -819,7 +819,49 @@ fn main() {
     }
 
     // ═══════════════════════════════════════════════
-    // 10. LANGUAGE STATISTICS
+    // 10. FFT / IFFT / DOMAIN
+    // ═══════════════════════════════════════════════
+    println!("\n--- FFT / IFFT / Domain ---");
+
+    {
+        let v = eval_str("(domain 4)", &empty_env()).unwrap();
+        let arr = v.as_array().unwrap();
+        let passed = arr.len() == 4 && arr[0].as_field().unwrap() == Fr::from(1u64);
+        println!("  domain elements: {}", if passed { "PASS" } else { "FAIL" });
+        results.push(TestResult { category: "fft".into(), test_name: "domain_4".into(), passed, details: "domain(4) returns 4 roots of unity starting with 1".into(), time_us: 0.0 });
+    }
+
+    {
+        // FFT of constant poly [5]: all evals should be 5
+        let v = eval_str("(fft 4 (poly:duv 5))", &empty_env()).unwrap();
+        let arr = v.as_array().unwrap();
+        let passed = arr.len() == 4 && arr.iter().all(|e| e.as_field().unwrap() == Fr::from(5u64));
+        println!("  fft constant poly: {}", if passed { "PASS" } else { "FAIL" });
+        results.push(TestResult { category: "fft".into(), test_name: "fft_constant".into(), passed, details: "fft(4, poly[5]) = [5,5,5,5]".into(), time_us: 0.0 });
+    }
+
+    {
+        // IFFT roundtrip: eval(ifft(fft(p)), x) == eval(p, x)
+        let env = empty_env();
+        let orig = eval_str("(eval (poly:duv 3 5 7) 10)", &env).unwrap().as_field().unwrap();
+        let rt = eval_str("(eval (ifft 4 (fft 4 (poly:duv 3 5 7))) 10)", &env).unwrap().as_field().unwrap();
+        let passed = orig == rt;
+        println!("  ifft roundtrip: {}", if passed { "PASS" } else { "FAIL" });
+        results.push(TestResult { category: "fft".into(), test_name: "ifft_roundtrip".into(), passed, details: "ifft(fft(p)) preserves eval".into(), time_us: 0.0 });
+    }
+
+    {
+        // FFT from array input
+        let env = empty_env();
+        let from_poly = eval_str("(fft 4 (poly:duv 1 2 3))", &env).unwrap();
+        let from_arr = eval_str("(fft 4 (mkarray 1 2 3))", &env).unwrap();
+        let passed = from_poly == from_arr;
+        println!("  fft from array: {}", if passed { "PASS" } else { "FAIL" });
+        results.push(TestResult { category: "fft".into(), test_name: "fft_from_array".into(), passed, details: "fft(poly) == fft(mkarray) for same coefficients".into(), time_us: 0.0 });
+    }
+
+    // ═══════════════════════════════════════════════
+    // 11. LANGUAGE STATISTICS
     // ═══════════════════════════════════════════════
     println!("\n--- Language Statistics ---");
 
@@ -831,12 +873,13 @@ fn main() {
             "poly_specific": ["pdiv", "pmod", "fix"],
             "indexed": ["bound", "Σ", "Π"],
             "conversions": ["densify", "sparsify", "as-uv", "as-mle"],
+            "fft": ["domain", "fft", "ifft"],
             "array_ops": ["mkarray", "select", "store", "alen"],
             "control": ["let", "if"],
             "comparison": ["eq"],
             "literals": ["Num", "Symbol"],
         },
-        "total_node_types": 35,
+        "total_node_types": 38,
         "field_type": "BLS12-381 Fr (scalar field)",
         "curve_type": "BLS12-381 G1",
         "syntax": "S-expressions (egg-native)",
@@ -844,13 +887,14 @@ fn main() {
         "egg_compatible": true,
     });
 
-    println!("  Total node types: 35");
+    println!("  Total node types: 38");
     println!("  Generic arithmetic: 6 (add, neg, mul, inv, scale, pow)");
     println!("  Evaluation & queries: 3 (eval, deg, nvars)");
     println!("  Poly constructors: 5 (poly:duv, poly:suv, poly:dmle, poly:smle, poly:mv)");
     println!("  Poly-specific: 3 (pdiv, pmod, fix)");
     println!("  Indexed Σ/Π: 3 (bound, Σ, Π)");
     println!("  Conversions: 4 (densify, sparsify, as-uv, as-mle)");
+    println!("  FFT/domain: 3 (domain, fft, ifft)");
     println!("  Array: 4 (mkarray, select, store, alen)");
     println!("  Control flow: 2 (let, if)");
     println!("  Comparison: 1 (eq)");

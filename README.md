@@ -1,12 +1,12 @@
 # arkΣΠ — Algebraic Language & Runtime
 
-A 35-node algebraic intermediate language with generic arithmetic, indexed Σ/Π loops, and explicit representation conversions over BLS12-381 field/curve/polynomial types, optimized via egg's equality saturation with type-analysis-guarded rewrite rules.
+A 38-node algebraic intermediate language with generic arithmetic, indexed Σ/Π loops, FFT/IFFT, and explicit representation conversions over BLS12-381 field/curve/polynomial types, optimized via egg's equality saturation with type-analysis-guarded rewrite rules.
 
 ## Language Overview
 
 arkΣΠ uses S-expression syntax (native egg format). Expressions are parsed into `RecExpr<ArkLang>` and evaluated by a type-dispatching runtime interpreter.
 
-### Node Types (35 total)
+### Node Types (38 total)
 
 | Category | Nodes | Syntax |
 |----------|-------|--------|
@@ -16,6 +16,7 @@ arkΣΠ uses S-expression syntax (native egg format). Expressions are parsed int
 | **Poly-Specific** (3) | `pdiv`, `pmod`, `fix` | `(pdiv p q)` |
 | **Indexed Sum/Product** (3) | `bound`, `Σ`, `Π` | `(Σ i 0 N body)` |
 | **Conversions** (4) | `densify`, `sparsify`, `as-uv`, `as-mle` | `(densify p)` |
+| **FFT/Domain** (3) | `domain`, `fft`, `ifft` | `(fft 8 p)`, `(domain 4)` |
 | **Array** (4) | `mkarray`, `select`, `store`, `alen` | `(select arr 1)` |
 | **Control** (2) | `let`, `if` | `(let x 5 (mul x x))` |
 | **Comparison** (1) | `eq` | `(eq a b)` |
@@ -69,7 +70,21 @@ All arithmetic is type-dispatched. A single `add` works on Field, Curve, Polynom
 (as-mle (poly:duv 3 4))              ;; UV poly → 1-var MLE
 ```
 
-## Rewrite Rules (28 total)
+### FFT / IFFT / Evaluation Domains
+
+```lisp
+(domain 8)                       ;; 8 roots of unity [ω⁰, ω¹, ..., ω⁷]
+(fft 8 (poly:duv 1 2 3))        ;; coefficient → evaluation form
+(ifft 8 evals)                   ;; evaluation → coefficient form
+(fft 4 (mkarray 1 2 3))         ;; also accepts raw coefficient arrays
+(eval (ifft N (fft N p)) x)     ;; roundtrip: recovers original poly
+```
+
+- `fft` accepts `Polynomial`, `SparseUVPoly`, or `Array[Field]` as input
+- `ifft` returns a `Polynomial` (dense UV, trailing zeros trimmed)
+- `domain` returns `Array[Field]` of N-th roots of unity via arkworks `GeneralEvaluationDomain`
+
+## Rewrite Rules (30 total)
 
 | Category | Count | Examples |
 |----------|-------|---------|
@@ -77,7 +92,7 @@ All arithmetic is type-dispatched. A single `add` works on Field, Curve, Polynom
 | Eval distribution | 4 | `eval-add`, `eval-neg`, `eval-scale`, `eval-mul` |
 | Σ/Π transforms | 6 | `sigma-unroll-1/2/3`, `sigma-dist-add`, `pi-unroll-1/2` |
 | Guarded Σ | 3 | `sigma-factor-scale`, `sigma-factor-mul`, `sigma-fusion` |
-| Conversion | 4 | `densify-sparsify`, `as-uv-as-mle` (roundtrip identities) |
+| Conversion | 6 | `densify-sparsify`, `as-uv-as-mle`, `ifft-fft`, `fft-ifft` |
 
 Guarded rules use `TypeAnalysis` (egg `Analysis` trait) to track free variables per e-class. Factor extraction only fires when the scalar is independent of the loop variable.
 
@@ -85,13 +100,13 @@ Guarded rules use `TypeAnalysis` (egg `Analysis` trait) to track free variables 
 
 ```bash
 cargo build --release
-cargo test --release       # 166 tests (102 lib + 35 algebraic laws + 29 property)
-cargo run --release        # 60 demo tests
+cargo test --release       # 178 tests (111 lib + 38 algebraic laws + 29 property)
+cargo run --release        # 64 demo tests
 ```
 
 ## Test Suite
 
-- **102 unit tests**: evaluator, language parsing, rewrite rules, type analysis, guarded conditions
-- **35 algebraic law tests**: rewrite rule soundness, optimizer round-trip, guard necessity, cross-type laws
+- **111 unit tests**: evaluator, language parsing, rewrite rules, type analysis, guarded conditions, FFT/IFFT
+- **38 algebraic law tests**: rewrite rule soundness, optimizer round-trip, guard necessity, cross-type laws, FFT roundtrip
 - **29 property tests**: field/curve/polynomial ring axioms, array theory, Σ-MSM linearity
-- **60 demo tests**: comprehensive integration coverage
+- **64 demo tests**: comprehensive integration coverage
