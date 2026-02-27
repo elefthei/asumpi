@@ -278,9 +278,26 @@ fn eval_id(expr: &RecExpr<ArkLang>, id: Id, env: &Env) -> Result<Value, EvalErro
             Err(EvalError::TypeError("ids: cannot be evaluated standalone, use inside (poly ...)".into()))
         }
 
-        // ── Poly-Specific: PDiv, PMod, Fix ──
-        ArkLang::PDiv(_) | ArkLang::PMod(_) | ArkLang::Fix(_) => {
+        // ── Poly-Specific: PDiv, Fix ──
+        ArkLang::PDiv(_) | ArkLang::Fix(_) => {
             eval_poly_specific(expr, node, env)
+        }
+
+        // ── Tuples ──
+        ArkLang::Pair([a, b]) => {
+            let va = eval_id(expr, *a, env)?;
+            let vb = eval_id(expr, *b, env)?;
+            Ok(Value::Pair(Box::new(va), Box::new(vb)))
+        }
+        ArkLang::Fst([p]) => {
+            let vp = eval_id(expr, *p, env)?;
+            let (a, _) = vp.as_pair()?;
+            Ok(a.clone())
+        }
+        ArkLang::Snd([p]) => {
+            let vp = eval_id(expr, *p, env)?;
+            let (_, b) = vp.as_pair()?;
+            Ok(b.clone())
         }
 
         // ── FFT / Domain ──
@@ -456,6 +473,19 @@ fn eval_id(expr: &RecExpr<ArkLang>, id: Id, env: &Env) -> Result<Value, EvalErro
             Ok(Value::Int(va.len() as i64))
         }
 
+        ArkLang::AAdd([a, b]) => {
+            let va = eval_id(expr, *a, env)?.as_array()?;
+            let vb = eval_id(expr, *b, env)?.as_array()?;
+            let len = va.len().max(vb.len());
+            let mut result = Vec::with_capacity(len);
+            for i in 0..len {
+                let fa = if i < va.len() { va[i].as_field()? } else { Fr::zero() };
+                let fb = if i < vb.len() { vb[i].as_field()? } else { Fr::zero() };
+                result.push(Value::Field(fa + fb));
+            }
+            Ok(Value::Array(result))
+        }
+
         // ── Let Binding ──
         ArkLang::Let([name, val, body]) => {
             let name_sym = match &expr[*name] {
@@ -584,7 +614,7 @@ fn eval_poly_constructor(expr: &RecExpr<ArkLang>, node: &ArkLang, env: &Env) -> 
     }
 }
 
-/// Evaluate poly-specific operations (division, modulus, fix).
+/// Evaluate poly-specific operations (division, fix).
 fn eval_poly_specific(expr: &RecExpr<ArkLang>, node: &ArkLang, env: &Env) -> Result<Value, EvalError> {
     match node {
         ArkLang::PDiv([a, b]) => {
@@ -595,22 +625,9 @@ fn eval_poly_specific(expr: &RecExpr<ArkLang>, node: &ArkLang, env: &Env) -> Res
             }
             let a_sparse = DenseOrSparsePolynomial::from(&va);
             let b_sparse = DenseOrSparsePolynomial::from(&vb);
-            let (q, _) = a_sparse.divide_with_q_and_r(&b_sparse)
+            let (q, r) = a_sparse.divide_with_q_and_r(&b_sparse)
                 .ok_or(EvalError::DivisionByZero)?;
-            Ok(Value::Polynomial(q))
-        }
-
-        ArkLang::PMod([a, b]) => {
-            let va = eval_id(expr, *a, env)?.as_polynomial()?;
-            let vb = eval_id(expr, *b, env)?.as_polynomial()?;
-            if vb.is_zero() {
-                return Err(EvalError::DivisionByZero);
-            }
-            let a_sparse = DenseOrSparsePolynomial::from(&va);
-            let b_sparse = DenseOrSparsePolynomial::from(&vb);
-            let (_, r) = a_sparse.divide_with_q_and_r(&b_sparse)
-                .ok_or(EvalError::DivisionByZero)?;
-            Ok(Value::Polynomial(r))
+            Ok(Value::Pair(Box::new(Value::Polynomial(q)), Box::new(Value::Polynomial(r))))
         }
 
         ArkLang::Fix([mle, partial]) => {
@@ -1161,13 +1178,14 @@ mod tests {
 
     #[test]
     fn test_poly_div() {
-        let v = eval_str("(eval (pdiv (poly:duv 1 3 2) (poly:duv 1 1)) 5)", &empty_env()).unwrap();
+        // pdiv now returns a Pair(quotient, remainder)
+        let v = eval_str("(eval (fst (pdiv (poly:duv 1 3 2) (poly:duv 1 1))) 5)", &empty_env()).unwrap();
         assert_eq!(v, Value::Int(11));
     }
 
     #[test]
     fn test_poly_mod() {
-        let v = eval_str("(eval (pmod (poly:duv 1 0 1) (poly:duv 1 1)) 999)", &empty_env()).unwrap();
+        let v = eval_str("(eval (snd (pdiv (poly:duv 1 0 1) (poly:duv 1 1))) 999)", &empty_env()).unwrap();
         assert_eq!(v, Value::Int(2));
     }
 
@@ -1672,5 +1690,75 @@ mod tests {
         let v = eval_str("(eval (poly (ids x) (mul c (pow x 2))) 3)", &env).unwrap();
         // 7*9 = 63
         assert_eq!(v.as_field().unwrap(), Fr::from(63u64));
+    }
+
+    // ── Tuple Tests ──
+
+    #[test]
+    fn test_pair_fst_snd() {
+        let env = empty_env();
+        let v = eval_str("(fst (pair 3 7))", &env).unwrap();
+        assert_eq!(v.as_field().unwrap(), Fr::from(3u64));
+        let v = eval_str("(snd (pair 3 7))", &env).unwrap();
+        assert_eq!(v.as_field().unwrap(), Fr::from(7u64));
+    }
+
+    #[test]
+    fn test_pair_nested() {
+        let env = empty_env();
+        let v = eval_str("(fst (snd (pair 1 (pair 2 3))))", &env).unwrap();
+        assert_eq!(v.as_field().unwrap(), Fr::from(2u64));
+    }
+
+    #[test]
+    fn test_pdiv_returns_pair() {
+        let env = empty_env();
+        // (2x² + 3x + 1) / (x + 1) = quotient (2x + 1), remainder 0
+        let q = eval_str("(eval (fst (pdiv (poly:duv 1 3 2) (poly:duv 1 1))) 5)", &env).unwrap();
+        assert_eq!(q.as_field().unwrap(), Fr::from(11u64));
+        let r = eval_str("(eval (snd (pdiv (poly:duv 1 3 2) (poly:duv 1 1))) 5)", &env).unwrap();
+        assert_eq!(r.as_field().unwrap(), Fr::from(0u64));
+    }
+
+    #[test]
+    fn test_pdiv_division_identity() {
+        // a = q*b + r: (x² + 1) / (x + 1) → q = x - 1, r = 2
+        // Verify: q*b + r = a at x = 5
+        let env = empty_env();
+        let a_val = eval_str("(eval (poly:duv 1 0 1) 5)", &env).unwrap().as_field().unwrap();
+        let q_val = eval_str("(eval (fst (pdiv (poly:duv 1 0 1) (poly:duv 1 1))) 5)", &env).unwrap().as_field().unwrap();
+        let b_val = eval_str("(eval (poly:duv 1 1) 5)", &env).unwrap().as_field().unwrap();
+        let r_val = eval_str("(eval (snd (pdiv (poly:duv 1 0 1) (poly:duv 1 1))) 5)", &env).unwrap().as_field().unwrap();
+        assert_eq!(a_val, q_val * b_val + r_val);
+    }
+
+    // ── Array Addition Tests ──
+
+    #[test]
+    fn test_aadd_basic() {
+        let env = empty_env();
+        let v = eval_str("(aadd (mkarray 1 2 3) (mkarray 4 5 6))", &env).unwrap().as_array().unwrap();
+        assert_eq!(v.len(), 3);
+        assert_eq!(v[0].as_field().unwrap(), Fr::from(5u64));
+        assert_eq!(v[1].as_field().unwrap(), Fr::from(7u64));
+        assert_eq!(v[2].as_field().unwrap(), Fr::from(9u64));
+    }
+
+    #[test]
+    fn test_aadd_different_lengths() {
+        let env = empty_env();
+        let v = eval_str("(aadd (mkarray 1 2) (mkarray 10 20 30))", &env).unwrap().as_array().unwrap();
+        assert_eq!(v.len(), 3);
+        assert_eq!(v[0].as_field().unwrap(), Fr::from(11u64));
+        assert_eq!(v[1].as_field().unwrap(), Fr::from(22u64));
+        assert_eq!(v[2].as_field().unwrap(), Fr::from(30u64));
+    }
+
+    #[test]
+    fn test_aadd_empty() {
+        let env = empty_env();
+        let v = eval_str("(aadd (mkarray) (mkarray 1 2))", &env).unwrap().as_array().unwrap();
+        assert_eq!(v.len(), 2);
+        assert_eq!(v[0].as_field().unwrap(), Fr::from(1u64));
     }
 }

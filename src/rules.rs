@@ -62,6 +62,12 @@ pub fn conversion_rules() -> Vec<Rewrite<ArkLang, TypeAnalysis>> {
         rewrite!("as-mle-as-uv"; "(as-mle (as-uv ?m))" => "?m"),
         rewrite!("ifft-fft"; "(ifft ?n (fft ?n ?p))" => "?p"),
         rewrite!("fft-ifft"; "(fft ?n (ifft ?n ?e))" => "?e"),
+        // Tuple projections
+        rewrite!("fst-pair"; "(fst (pair ?a ?b))" => "?a"),
+        rewrite!("snd-pair"; "(snd (pair ?a ?b))" => "?b"),
+        rewrite!("pair-eta"; "(pair (fst ?p) (snd ?p))" => "?p"),
+        // Array addition commutativity
+        rewrite!("aadd-comm"; "(aadd ?a ?b)" => "(aadd ?b ?a)"),
     ]
 }
 
@@ -335,6 +341,52 @@ mod tests {
             runner.egraph.find(id1),
             runner.egraph.find(id2),
             "ifft(n, fft(n, p)) should reduce to p"
+        );
+    }
+
+    #[test]
+    fn test_fst_pair_projection() {
+        let rules = conversion_rules();
+        let simplified = simplify("(fst (pair a b))", &rules);
+        assert_eq!(simplified, "a");
+    }
+
+    #[test]
+    fn test_snd_pair_projection() {
+        let rules = conversion_rules();
+        let simplified = simplify("(snd (pair a b))", &rules);
+        assert_eq!(simplified, "b");
+    }
+
+    #[test]
+    fn test_pair_eta() {
+        let rules = conversion_rules();
+        let e1: RecExpr<ArkLang> = "(pair (fst p) (snd p))".parse().unwrap();
+        let e2: RecExpr<ArkLang> = "p".parse().unwrap();
+        let mut egraph: EGraph<ArkLang, TypeAnalysis> = EGraph::default();
+        let id1 = egraph.add_expr(&e1);
+        let id2 = egraph.add_expr(&e2);
+        let runner = Runner::default().with_egraph(egraph).run(&rules);
+        assert_eq!(
+            runner.egraph.find(id1),
+            runner.egraph.find(id2),
+            "(pair (fst p) (snd p)) should reduce to p"
+        );
+    }
+
+    #[test]
+    fn test_aadd_commutativity_rewrite() {
+        let rules = conversion_rules();
+        let e1: RecExpr<ArkLang> = "(aadd a b)".parse().unwrap();
+        let e2: RecExpr<ArkLang> = "(aadd b a)".parse().unwrap();
+        let mut egraph: EGraph<ArkLang, TypeAnalysis> = EGraph::default();
+        let id1 = egraph.add_expr(&e1);
+        let id2 = egraph.add_expr(&e2);
+        let runner = Runner::default().with_egraph(egraph).run(&rules);
+        assert_eq!(
+            runner.egraph.find(id1),
+            runner.egraph.find(id2),
+            "aadd should be commutative"
         );
     }
 }

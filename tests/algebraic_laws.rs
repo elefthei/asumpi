@@ -536,4 +536,34 @@ proptest! {
         let optimized = optimize_and_eval("(eval (ifft 4 (fft 4 (poly:duv c0 c1))) x)", &env).as_field().unwrap();
         prop_assert_eq!(original, optimized);
     }
+
+    // pdiv division identity: a = q*b + r at all points
+    #[test]
+    fn pdiv_division_identity(c0 in any::<u64>(), c1 in any::<u64>(), c2 in any::<u64>(), x in any::<u64>()) {
+        let env = env_with_fields(&[("c0", fr(c0)), ("c1", fr(c1)), ("c2", fr(c2)), ("x", fr(x))]);
+        let a = eval_str("(eval (poly:duv c0 c1 c2) x)", &env).as_field().unwrap();
+        let q = eval_str("(eval (fst (pdiv (poly:duv c0 c1 c2) (poly:duv 1 1))) x)", &env).as_field().unwrap();
+        let b = eval_str("(eval (poly:duv 1 1) x)", &env).as_field().unwrap();
+        let r = eval_str("(eval (snd (pdiv (poly:duv c0 c1 c2) (poly:duv 1 1))) x)", &env).as_field().unwrap();
+        prop_assert_eq!(a, q * b + r);
+    }
+
+    // aadd commutativity
+    #[test]
+    fn aadd_commutative(a0 in any::<u64>(), a1 in any::<u64>(), b0 in any::<u64>(), b1 in any::<u64>(), b2 in any::<u64>()) {
+        let env = env_with_fields(&[("a0", fr(a0)), ("a1", fr(a1)), ("b0", fr(b0)), ("b1", fr(b1)), ("b2", fr(b2))]);
+        let lhs = eval_str("(aadd (mkarray a0 a1) (mkarray b0 b1 b2))", &env).as_array().unwrap();
+        let rhs = eval_str("(aadd (mkarray b0 b1 b2) (mkarray a0 a1))", &env).as_array().unwrap();
+        prop_assert_eq!(lhs, rhs);
+    }
+
+    // fst/snd projection on pair
+    #[test]
+    fn pair_projection(a in any::<u64>(), b in any::<u64>()) {
+        let env = env_with_fields(&[("a", fr(a)), ("b", fr(b))]);
+        let fst = eval_str("(fst (pair a b))", &env).as_field().unwrap();
+        let snd = eval_str("(snd (pair a b))", &env).as_field().unwrap();
+        prop_assert_eq!(fst, fr(a));
+        prop_assert_eq!(snd, fr(b));
+    }
 }

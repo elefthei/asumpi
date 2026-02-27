@@ -1,6 +1,6 @@
 // arkΣΠ Language Definition
 //
-// A unified sum-of-products language with 40 nodes.
+// A unified sum-of-products language with 43 nodes.
 // Generic arithmetic, indexed Σ/Π, explicit conversions.
 
 use egg::*;
@@ -36,10 +36,14 @@ define_language! {
         "ids"       = Ids(Box<[Id]>),
         "poly"      = Poly(Box<[Id]>),
 
-        // ── Poly-Specific (3) ──
+        // ── Poly-Specific (2) ──
         "pdiv" = PDiv([Id; 2]),
-        "pmod" = PMod([Id; 2]),
         "fix"  = Fix([Id; 2]),
+
+        // ── Tuples (3) ──
+        "pair" = Pair([Id; 2]),
+        "fst"  = Fst([Id; 1]),
+        "snd"  = Snd([Id; 1]),
 
         // ── FFT / Domain (3) ──
         "domain" = Domain([Id; 1]),
@@ -57,11 +61,12 @@ define_language! {
         "as-uv"    = AsUV([Id; 1]),
         "as-mle"   = AsMLE([Id; 1]),
 
-        // ── Array (4) ──
+        // ── Array (5) ──
         "mkarray" = MkArray(Box<[Id]>),
         "select"  = Select([Id; 2]),
         "store"   = Store([Id; 3]),
         "alen"    = ALen([Id; 1]),
+        "aadd"    = AAdd([Id; 2]),
 
         // ── Control (2) ──
         "let" = Let([Id; 3]),

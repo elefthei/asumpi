@@ -515,27 +515,27 @@ fn main() {
     }
 
     {
-        let v = eval_str("(eval (pdiv (poly:duv 1 3 2) (poly:duv 1 1)) 5)", &empty_env()).unwrap();
+        let v = eval_str("(eval (fst (pdiv (poly:duv 1 3 2) (poly:duv 1 1))) 5)", &empty_env()).unwrap();
         let passed = v == Value::Int(11);
-        println!("  pdiv: {}", if passed { "PASS" } else { "FAIL" });
+        println!("  pdiv quotient: {}", if passed { "PASS" } else { "FAIL" });
         results.push(TestResult {
             category: "polynomial".into(),
-            test_name: "pdiv".into(),
+            test_name: "pdiv_quotient".into(),
             passed,
-            details: "(2x²+3x+1)/(x+1) at x=5 = 11".into(),
+            details: "fst(pdiv (2x²+3x+1) (x+1)) at x=5 = 11".into(),
             time_us: 0.0,
         });
     }
 
     {
-        let v = eval_str("(eval (pmod (poly:duv 1 0 1) (poly:duv 1 1)) 999)", &empty_env()).unwrap();
+        let v = eval_str("(eval (snd (pdiv (poly:duv 1 0 1) (poly:duv 1 1))) 999)", &empty_env()).unwrap();
         let passed = v == Value::Int(2);
-        println!("  pmod: {}", if passed { "PASS" } else { "FAIL" });
+        println!("  pdiv remainder: {}", if passed { "PASS" } else { "FAIL" });
         results.push(TestResult {
             category: "polynomial".into(),
-            test_name: "pmod".into(),
+            test_name: "pdiv_remainder".into(),
             passed,
-            details: "(x²+1) mod (x+1) = 2".into(),
+            details: "snd(pdiv (x²+1) (x+1)) = 2".into(),
             time_us: 0.0,
         });
     }
@@ -900,7 +900,58 @@ fn main() {
     }
 
     // ═══════════════════════════════════════════════
-    // 12. LANGUAGE STATISTICS
+    // 12. TUPLES
+    // ═══════════════════════════════════════════════
+    println!("\n--- Tuples ---");
+
+    {
+        let v = eval_str("(fst (pair 3 7))", &empty_env()).unwrap();
+        let passed = v.as_field().unwrap() == Fr::from(3u64);
+        println!("  fst pair: {}", if passed { "PASS" } else { "FAIL" });
+        results.push(TestResult { category: "tuple".into(), test_name: "fst_pair".into(), passed, details: "fst(pair(3,7)) = 3".into(), time_us: 0.0 });
+    }
+
+    {
+        let v = eval_str("(snd (pair 3 7))", &empty_env()).unwrap();
+        let passed = v.as_field().unwrap() == Fr::from(7u64);
+        println!("  snd pair: {}", if passed { "PASS" } else { "FAIL" });
+        results.push(TestResult { category: "tuple".into(), test_name: "snd_pair".into(), passed, details: "snd(pair(3,7)) = 7".into(), time_us: 0.0 });
+    }
+
+    {
+        // pdiv division identity: a = q*b + r
+        let env = empty_env();
+        let a = eval_str("(eval (poly:duv 1 0 1) 5)", &env).unwrap().as_field().unwrap();
+        let q = eval_str("(eval (fst (pdiv (poly:duv 1 0 1) (poly:duv 1 1))) 5)", &env).unwrap().as_field().unwrap();
+        let b = eval_str("(eval (poly:duv 1 1) 5)", &env).unwrap().as_field().unwrap();
+        let r = eval_str("(eval (snd (pdiv (poly:duv 1 0 1) (poly:duv 1 1))) 5)", &env).unwrap().as_field().unwrap();
+        let passed = a == q * b + r;
+        println!("  pdiv identity a=qb+r: {}", if passed { "PASS" } else { "FAIL" });
+        results.push(TestResult { category: "tuple".into(), test_name: "pdiv_identity".into(), passed, details: "a = q*b + r for (x²+1)/(x+1)".into(), time_us: 0.0 });
+    }
+
+    // ═══════════════════════════════════════════════
+    // 13. ARRAY ADDITION
+    // ═══════════════════════════════════════════════
+    println!("\n--- Array Addition ---");
+
+    {
+        let v = eval_str("(aadd (mkarray 1 2 3) (mkarray 4 5 6))", &empty_env()).unwrap().as_array().unwrap();
+        let passed = v.len() == 3 && v[0].as_field().unwrap() == Fr::from(5u64)
+            && v[1].as_field().unwrap() == Fr::from(7u64) && v[2].as_field().unwrap() == Fr::from(9u64);
+        println!("  aadd basic: {}", if passed { "PASS" } else { "FAIL" });
+        results.push(TestResult { category: "array".into(), test_name: "aadd_basic".into(), passed, details: "[1,2,3]+[4,5,6]=[5,7,9]".into(), time_us: 0.0 });
+    }
+
+    {
+        let v = eval_str("(aadd (mkarray 1 2) (mkarray 10 20 30))", &empty_env()).unwrap().as_array().unwrap();
+        let passed = v.len() == 3 && v[2].as_field().unwrap() == Fr::from(30u64);
+        println!("  aadd diff lengths: {}", if passed { "PASS" } else { "FAIL" });
+        results.push(TestResult { category: "array".into(), test_name: "aadd_diff_len".into(), passed, details: "[1,2]+[10,20,30]=[11,22,30]".into(), time_us: 0.0 });
+    }
+
+    // ═══════════════════════════════════════════════
+    // 14. LANGUAGE STATISTICS
     // ═══════════════════════════════════════════════
     println!("\n--- Language Statistics ---");
 
@@ -909,16 +960,17 @@ fn main() {
             "generic_arithmetic": ["add", "neg", "mul", "inv", "scale", "pow"],
             "eval_queries": ["eval", "deg", "nvars"],
             "poly_constructors": ["poly:duv", "poly:suv", "poly:dmle", "poly:smle", "poly:mv", "ids", "poly"],
-            "poly_specific": ["pdiv", "pmod", "fix"],
+            "poly_specific": ["pdiv", "fix"],
+            "tuples": ["pair", "fst", "snd"],
             "indexed": ["bound", "Σ", "Π"],
             "conversions": ["densify", "sparsify", "as-uv", "as-mle"],
             "fft": ["domain", "fft", "ifft"],
-            "array_ops": ["mkarray", "select", "store", "alen"],
+            "array_ops": ["mkarray", "select", "store", "alen", "aadd"],
             "control": ["let", "if"],
             "comparison": ["eq"],
             "literals": ["Num", "Symbol"],
         },
-        "total_node_types": 40,
+        "total_node_types": 43,
         "field_type": "BLS12-381 Fr (scalar field)",
         "curve_type": "BLS12-381 G1",
         "syntax": "S-expressions (egg-native)",
@@ -926,15 +978,16 @@ fn main() {
         "egg_compatible": true,
     });
 
-    println!("  Total node types: 40");
+    println!("  Total node types: 43");
     println!("  Generic arithmetic: 6 (add, neg, mul, inv, scale, pow)");
     println!("  Evaluation & queries: 3 (eval, deg, nvars)");
     println!("  Poly constructors: 7 (poly:duv, poly:suv, poly:dmle, poly:smle, poly:mv, ids, poly)");
-    println!("  Poly-specific: 3 (pdiv, pmod, fix)");
+    println!("  Poly-specific: 2 (pdiv, fix)");
+    println!("  Tuples: 3 (pair, fst, snd)");
     println!("  Indexed Σ/Π: 3 (bound, Σ, Π)");
     println!("  Conversions: 4 (densify, sparsify, as-uv, as-mle)");
     println!("  FFT/domain: 3 (domain, fft, ifft)");
-    println!("  Array: 4 (mkarray, select, store, alen)");
+    println!("  Array: 5 (mkarray, select, store, alen, aadd)");
     println!("  Control flow: 2 (let, if)");
     println!("  Comparison: 1 (eq)");
     println!("  Literals: 2 (Num, Symbol)");

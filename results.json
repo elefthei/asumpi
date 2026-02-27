@@ -9,7 +9,8 @@
         "mkarray",
         "select",
         "store",
-        "alen"
+        "alen",
+        "aadd"
       ],
       "comparison": [
         "eq"
@@ -62,18 +63,22 @@
       ],
       "poly_specific": [
         "pdiv",
-        "pmod",
         "fix"
+      ],
+      "tuples": [
+        "pair",
+        "fst",
+        "snd"
       ]
     },
     "syntax": "S-expressions (egg-native)",
-    "total_node_types": 40
+    "total_node_types": 43
   },
   "summary": {
     "failed": 0,
     "pass_rate": "100.0%",
-    "passed": 68,
-    "total": 68
+    "passed": 73,
+    "total": 73
   },
   "tests": [
     {
@@ -81,21 +86,21 @@
       "details": "(add 3 7) = 10 ✓",
       "passed": true,
       "test_name": "add basic",
-      "time_us": 49.0
+      "time_us": 28.0
     },
     {
       "category": "field_arithmetic",
       "details": "(add 10 (neg 3)) = 7 ✓",
       "passed": true,
       "test_name": "sub via neg",
-      "time_us": 7.0
+      "time_us": 5.0
     },
     {
       "category": "field_arithmetic",
       "details": "(mul 6 7) = 42 ✓",
       "passed": true,
       "test_name": "mul basic",
-      "time_us": 1.0
+      "time_us": 4.0
     },
     {
       "category": "field_arithmetic",
@@ -137,7 +142,7 @@
       "details": "(add (add 1 2) (add 3 4)) = 10 ✓",
       "passed": true,
       "test_name": "nested add",
-      "time_us": 2.0
+      "time_us": 1.0
     },
     {
       "category": "field_arithmetic",
@@ -151,7 +156,7 @@
       "details": "(pow 2 10) = 1024 ✓",
       "passed": true,
       "test_name": "power",
-      "time_us": 2.0
+      "time_us": 1.0
     },
     {
       "category": "field_arithmetic",
@@ -179,7 +184,7 @@
       "details": "a+b == b+a with random a,b",
       "passed": true,
       "test_name": "add_commutativity",
-      "time_us": 2.0
+      "time_us": 3.0
     },
     {
       "category": "field_properties",
@@ -207,63 +212,63 @@
       "details": "(a*b)*c == a*(b*c) with random a,b,c",
       "passed": true,
       "test_name": "mul_associativity",
-      "time_us": 2.0
+      "time_us": 3.0
     },
     {
       "category": "field_properties",
       "details": "a + (-a) == 0 with random a",
       "passed": true,
       "test_name": "additive_inverse",
-      "time_us": 1.0
+      "time_us": 2.0
     },
     {
       "category": "field_properties",
       "details": "a * inv(a) == 1 with random a",
       "passed": true,
       "test_name": "multiplicative_inverse",
-      "time_us": 6.0
+      "time_us": 8.0
     },
     {
       "category": "curve_operations",
       "details": "P+Q == Q+P",
       "passed": true,
       "test_name": "point_add_commutativity",
-      "time_us": 8.0
+      "time_us": 6.0
     },
     {
       "category": "curve_operations",
       "details": "P + (-P) == O",
       "passed": true,
       "test_name": "point_additive_inverse",
-      "time_us": 3.0
+      "time_us": 2.0
     },
     {
       "category": "curve_operations",
       "details": "3*P == P+P+P",
       "passed": true,
       "test_name": "scalar_mul_consistency",
-      "time_us": 18.0
+      "time_us": 17.0
     },
     {
       "category": "curve_operations",
       "details": "s*(P+Q) == s*P + s*Q",
       "passed": true,
       "test_name": "scalar_mul_linearity",
-      "time_us": 489.0
+      "time_us": 503.0
     },
     {
       "category": "curve_operations",
       "details": "(a+b)*P == a*P + b*P",
       "passed": true,
       "test_name": "scalar_distributivity",
-      "time_us": 503.0
+      "time_us": 520.0
     },
     {
       "category": "sigma_pi",
       "details": "Σ i=0..3 arr[i] = 60",
       "passed": true,
       "test_name": "sigma_sum",
-      "time_us": 15.0
+      "time_us": 16.0
     },
     {
       "category": "sigma_pi",
@@ -277,28 +282,28 @@
       "details": "Σ s_i*P_i == MSM result",
       "passed": true,
       "test_name": "sigma_msm",
-      "time_us": 414.0
+      "time_us": 333.0
     },
     {
       "category": "polynomial",
       "details": "1+2x+3x^2 at x=5 = 86",
       "passed": true,
       "test_name": "poly_eval",
-      "time_us": 7.0
+      "time_us": 4.0
     },
     {
       "category": "polynomial",
       "details": "(1+2x)+(3+4x) at x=10 = 64",
       "passed": true,
       "test_name": "poly_add",
-      "time_us": 4.0
+      "time_us": 3.0
     },
     {
       "category": "polynomial",
       "details": "(1+x)^2 at x=3 = 16",
       "passed": true,
       "test_name": "poly_mul",
-      "time_us": 17.0
+      "time_us": 16.0
     },
     {
       "category": "polynomial",
@@ -323,16 +328,16 @@
     },
     {
       "category": "polynomial",
-      "details": "(2x²+3x+1)/(x+1) at x=5 = 11",
+      "details": "fst(pdiv (2x²+3x+1) (x+1)) at x=5 = 11",
       "passed": true,
-      "test_name": "pdiv",
+      "test_name": "pdiv_quotient",
       "time_us": 0.0
     },
     {
       "category": "polynomial",
-      "details": "(x²+1) mod (x+1) = 2",
+      "details": "snd(pdiv (x²+1) (x+1)) = 2",
       "passed": true,
-      "test_name": "pmod",
+      "test_name": "pdiv_remainder",
       "time_us": 0.0
     },
     {
@@ -550,6 +555,41 @@
       "details": "2xy at (3,5) = 30",
       "passed": true,
       "test_name": "poly_mv_cross",
+      "time_us": 0.0
+    },
+    {
+      "category": "tuple",
+      "details": "fst(pair(3,7)) = 3",
+      "passed": true,
+      "test_name": "fst_pair",
+      "time_us": 0.0
+    },
+    {
+      "category": "tuple",
+      "details": "snd(pair(3,7)) = 7",
+      "passed": true,
+      "test_name": "snd_pair",
+      "time_us": 0.0
+    },
+    {
+      "category": "tuple",
+      "details": "a = q*b + r for (x²+1)/(x+1)",
+      "passed": true,
+      "test_name": "pdiv_identity",
+      "time_us": 0.0
+    },
+    {
+      "category": "array",
+      "details": "[1,2,3]+[4,5,6]=[5,7,9]",
+      "passed": true,
+      "test_name": "aadd_basic",
+      "time_us": 0.0
+    },
+    {
+      "category": "array",
+      "details": "[1,2]+[10,20,30]=[11,22,30]",
+      "passed": true,
+      "test_name": "aadd_diff_len",
       "time_us": 0.0
     }
   ]

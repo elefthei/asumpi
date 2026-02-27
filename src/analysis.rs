@@ -20,6 +20,7 @@ pub enum ArkType {
     SparseMLE,
     MVPoly,
     Array,
+    Pair,
     Bool,
     Unknown,
 }
@@ -146,16 +147,27 @@ impl Analysis<ArkLang> for TypeAnalysis {
                 types.insert(ArkType::MVPoly);
             }
 
-            ArkLang::PDiv([a, b]) | ArkLang::PMod([a, b]) => {
+            ArkLang::PDiv([a, b]) => {
                 free_vars.extend(&cd(a).free_vars);
                 free_vars.extend(&cd(b).free_vars);
-                types.insert(ArkType::DensePoly);
+                types.insert(ArkType::Pair);
             }
 
             ArkLang::Fix([a, b]) => {
                 free_vars.extend(&cd(a).free_vars);
                 free_vars.extend(&cd(b).free_vars);
                 types.insert(ArkType::DenseMLE);
+            }
+
+            ArkLang::Pair([a, b]) => {
+                free_vars.extend(&cd(a).free_vars);
+                free_vars.extend(&cd(b).free_vars);
+                types.insert(ArkType::Pair);
+            }
+
+            ArkLang::Fst([a]) | ArkLang::Snd([a]) => {
+                free_vars.extend(&cd(a).free_vars);
+                types.insert(ArkType::Unknown);
             }
 
             ArkLang::Domain([a]) => {
@@ -233,6 +245,12 @@ impl Analysis<ArkLang> for TypeAnalysis {
                 free_vars.extend(&cd(arr).free_vars);
                 free_vars.extend(&cd(idx).free_vars);
                 free_vars.extend(&cd(val).free_vars);
+                types.insert(ArkType::Array);
+            }
+
+            ArkLang::AAdd([a, b]) => {
+                free_vars.extend(&cd(a).free_vars);
+                free_vars.extend(&cd(b).free_vars);
                 types.insert(ArkType::Array);
             }
 

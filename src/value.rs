@@ -30,6 +30,8 @@ pub enum Value {
     SparseUVPoly(SparseUVPolynomial<Fr>),
     /// Sparse multilinear extension over Fr
     SparseMLE(SparseMultilinearExtension<Fr>),
+    /// Pair of values (used for pdiv quotient+remainder, etc.)
+    Pair(Box<Value>, Box<Value>),
     /// Boolean value
     Bool(bool),
     /// Integer value (for indices, exponents, etc.)
@@ -148,6 +150,17 @@ impl Value {
         }
     }
 
+    /// Extract as pair.
+    pub fn as_pair(&self) -> Result<(&Value, &Value), EvalError> {
+        match self {
+            Value::Pair(a, b) => Ok((a, b)),
+            _ => Err(EvalError::TypeError(format!(
+                "expected pair, got {}",
+                self.type_name()
+            ))),
+        }
+    }
+
     pub fn type_name(&self) -> &'static str {
         match self {
             Value::Field(_) => "Field",
@@ -158,6 +171,7 @@ impl Value {
             Value::MVPoly(_) => "MVPoly",
             Value::SparseUVPoly(_) => "SparseUVPoly",
             Value::SparseMLE(_) => "SparseMLE",
+            Value::Pair(_, _) => "Pair",
             Value::Bool(_) => "Bool",
             Value::Int(_) => "Int",
         }
@@ -187,6 +201,7 @@ impl fmt::Display for Value {
             Value::MVPoly(p) => write!(f, "MVPoly(nvars={}, deg={})", p.num_vars(), p.degree()),
             Value::SparseUVPoly(p) => write!(f, "SparseUVPoly(deg={})", p.degree()),
             Value::SparseMLE(m) => write!(f, "SparseMLE(nvars={})", m.num_vars()),
+            Value::Pair(a, b) => write!(f, "Pair({}, {})", a, b),
             Value::Bool(b) => write!(f, "Bool({})", b),
             Value::Int(n) => write!(f, "Int({})", n),
         }
@@ -206,6 +221,7 @@ impl PartialEq for Value {
             (Value::MVPoly(a), Value::MVPoly(b)) => a == b,
             (Value::SparseUVPoly(a), Value::SparseUVPoly(b)) => a == b,
             (Value::SparseMLE(a), Value::SparseMLE(b)) => a == b,
+            (Value::Pair(a1, a2), Value::Pair(b1, b2)) => a1 == b1 && a2 == b2,
             // Cross-type: Int and Field can be compared
             (Value::Int(n), Value::Field(f)) | (Value::Field(f), Value::Int(n)) => {
                 int_to_fr(*n) == *f
