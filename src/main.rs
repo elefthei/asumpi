@@ -7,7 +7,7 @@ use ark_bls12_381::{Fr, G1Projective};
 use ark_ec::CurveGroup;
 use ark_ff::{UniformRand, Zero};
 use ark_std::rand::SeedableRng;
-use ark_wasm_lang::{eval, ArkLang, Env, EvalError, Value};
+use ark_sigma_pi::{eval, ArkLang, Env, EvalError, Value};
 use egg::RecExpr;
 use rand::rngs::StdRng;
 use serde::Serialize;

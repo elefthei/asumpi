@@ -6,7 +6,7 @@
 mod common;
 
 use ark_ff::Zero;
-use ark_wasm_lang::*;
+use ark_sigma_pi::*;
 use egg::{AstSize, Extractor, RecExpr, Runner};
 use proptest::prelude::*;
 use std::collections::HashMap;

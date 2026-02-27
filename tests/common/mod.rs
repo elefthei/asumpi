@@ -1,7 +1,7 @@
 // Shared test helpers for arkΣΠ integration tests.
 
 use ark_bls12_381::Fr;
-use ark_wasm_lang::{eval, ArkLang, Env, Value};
+use ark_sigma_pi::{eval, ArkLang, Env, Value};
 use egg::RecExpr;
 use std::collections::HashMap;
 

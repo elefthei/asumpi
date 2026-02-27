@@ -1,5 +1,5 @@
 [package]
-name = "ark-wasm-lang"
+name = "ark-sigma-pi"
 version = "0.1.0"
 edition = "2021"
 
@@ -19,5 +19,5 @@ serde_json = "1"
 proptest = "1"
 
 [[bin]]
-name = "ark_wasm_demo"
+name = "ark_sigma_pi_demo"
 path = "src/main.rs"

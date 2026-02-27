@@ -1,4 +1,4 @@
-// Ark-wasm Runtime Value Types
+// arkΣΠ Runtime Value Types
 
 use ark_bls12_381::{Fr, G1Projective};
 use ark_ec::CurveGroup;
