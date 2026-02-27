@@ -1,18 +1,18 @@
 # arkΣΠ — Algebraic Language & Runtime
 
-A 38-node algebraic intermediate language with generic arithmetic, indexed Σ/Π loops, FFT/IFFT, and explicit representation conversions over BLS12-381 field/curve/polynomial types, optimized via egg's equality saturation with type-analysis-guarded rewrite rules.
+A 40-node algebraic intermediate language with generic arithmetic, indexed Σ/Π loops, FFT/IFFT, and explicit representation conversions over BLS12-381 field/curve/polynomial types, optimized via egg's equality saturation with type-analysis-guarded rewrite rules.
 
 ## Language Overview
 
 arkΣΠ uses S-expression syntax (native egg format). Expressions are parsed into `RecExpr<ArkLang>` and evaluated by a type-dispatching runtime interpreter.
 
-### Node Types (38 total)
+### Node Types (40 total)
 
 | Category | Nodes | Syntax |
 |----------|-------|--------|
 | **Generic Arithmetic** (6) | `add`, `neg`, `mul`, `inv`, `scale`, `pow` | `(add x y)`, `(scale c P)` |
 | **Evaluation & Queries** (3) | `eval`, `deg`, `nvars` | `(eval p x)`, `(deg p)` |
-| **Polynomial Constructors** (5) | `poly:duv`, `poly:suv`, `poly:dmle`, `poly:smle`, `poly:mv` | `(poly:duv 1 2 3)` |
+| **Polynomial Constructors** (7) | `poly:duv`, `poly:suv`, `poly:dmle`, `poly:smle`, `poly:mv`, `ids`, `poly` | `(poly:duv 1 2 3)`, `(poly (ids x) ...)` |
 | **Poly-Specific** (3) | `pdiv`, `pmod`, `fix` | `(pdiv p q)` |
 | **Indexed Sum/Product** (3) | `bound`, `Σ`, `Π` | `(Σ i 0 N body)` |
 | **Conversions** (4) | `densify`, `sparsify`, `as-uv`, `as-mle` | `(densify p)` |
@@ -70,6 +70,28 @@ All arithmetic is type-dispatched. A single `add` works on Field, Curve, Polynom
 (as-mle (poly:duv 3 4))              ;; UV poly → 1-var MLE
 ```
 
+### Symbolic Polynomial Constructor
+
+Human-readable syntax for building sparse polynomials. Terms are monomial expressions using declared formal variables; coefficients and exponents can be arbitrary expressions from the environment.
+
+```lisp
+;; Univariate: 3x² + 5x + 7
+(poly (ids x) (mul 3 (pow x 2)) (mul 5 x) 7)
+
+;; Multivariate: x² + y³ + 4
+(poly (ids x y) (pow x 2) (pow y 3) 4)
+
+;; Cross terms: 2x²y
+(poly (ids x y) (mul 2 (mul (pow x 2) y)))
+
+;; Dynamic exponent from env: x^n where n is bound elsewhere
+(poly (ids x) (pow x n))
+```
+
+- 1 variable → produces `SparseUVPoly`
+- ≥2 variables → produces `MVPoly`
+- Equivalent to `poly:suv`/`poly:mv` but much more readable
+
 ### FFT / IFFT / Evaluation Domains
 
 ```lisp
@@ -100,13 +122,13 @@ Guarded rules use `TypeAnalysis` (egg `Analysis` trait) to track free variables 
 
 ```bash
 cargo build --release
-cargo test --release       # 178 tests (111 lib + 38 algebraic laws + 29 property)
-cargo run --release        # 64 demo tests
+cargo test --release       # 187 tests (120 lib + 38 algebraic laws + 29 property)
+cargo run --release        # 68 demo tests
 ```
 
 ## Test Suite
 
-- **111 unit tests**: evaluator, language parsing, rewrite rules, type analysis, guarded conditions, FFT/IFFT
+- **120 unit tests**: evaluator, language parsing, rewrite rules, type analysis, guarded conditions, FFT/IFFT, symbolic poly
 - **38 algebraic law tests**: rewrite rule soundness, optimizer round-trip, guard necessity, cross-type laws, FFT roundtrip
 - **29 property tests**: field/curve/polynomial ring axioms, array theory, Σ-MSM linearity
-- **64 demo tests**: comprehensive integration coverage
+- **68 demo tests**: comprehensive integration coverage

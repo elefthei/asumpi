@@ -56,7 +56,9 @@
         "poly:suv",
         "poly:dmle",
         "poly:smle",
-        "poly:mv"
+        "poly:mv",
+        "ids",
+        "poly"
       ],
       "poly_specific": [
         "pdiv",
@@ -65,13 +67,13 @@
       ]
     },
     "syntax": "S-expressions (egg-native)",
-    "total_node_types": 38
+    "total_node_types": 40
   },
   "summary": {
     "failed": 0,
     "pass_rate": "100.0%",
-    "passed": 64,
-    "total": 64
+    "passed": 68,
+    "total": 68
   },
   "tests": [
     {
@@ -79,14 +81,14 @@
       "details": "(add 3 7) = 10 ✓",
       "passed": true,
       "test_name": "add basic",
-      "time_us": 36.0
+      "time_us": 49.0
     },
     {
       "category": "field_arithmetic",
       "details": "(add 10 (neg 3)) = 7 ✓",
       "passed": true,
       "test_name": "sub via neg",
-      "time_us": 6.0
+      "time_us": 7.0
     },
     {
       "category": "field_arithmetic",
@@ -135,7 +137,7 @@
       "details": "(add (add 1 2) (add 3 4)) = 10 ✓",
       "passed": true,
       "test_name": "nested add",
-      "time_us": 1.0
+      "time_us": 2.0
     },
     {
       "category": "field_arithmetic",
@@ -170,7 +172,7 @@
       "details": "inv(0) = Err(DivisionByZero)",
       "passed": true,
       "test_name": "division_by_zero",
-      "time_us": 1.0
+      "time_us": 0.0
     },
     {
       "category": "field_properties",
@@ -191,7 +193,7 @@
       "details": "a*(b+c) == a*b + a*c with random a,b,c",
       "passed": true,
       "test_name": "distributivity",
-      "time_us": 8.0
+      "time_us": 4.0
     },
     {
       "category": "field_properties",
@@ -226,7 +228,7 @@
       "details": "P+Q == Q+P",
       "passed": true,
       "test_name": "point_add_commutativity",
-      "time_us": 7.0
+      "time_us": 8.0
     },
     {
       "category": "curve_operations",
@@ -240,63 +242,63 @@
       "details": "3*P == P+P+P",
       "passed": true,
       "test_name": "scalar_mul_consistency",
-      "time_us": 19.0
+      "time_us": 18.0
     },
     {
       "category": "curve_operations",
       "details": "s*(P+Q) == s*P + s*Q",
       "passed": true,
       "test_name": "scalar_mul_linearity",
-      "time_us": 490.0
+      "time_us": 489.0
     },
     {
       "category": "curve_operations",
       "details": "(a+b)*P == a*P + b*P",
       "passed": true,
       "test_name": "scalar_distributivity",
-      "time_us": 536.0
+      "time_us": 503.0
     },
     {
       "category": "sigma_pi",
       "details": "Σ i=0..3 arr[i] = 60",
       "passed": true,
       "test_name": "sigma_sum",
-      "time_us": 16.0
+      "time_us": 15.0
     },
     {
       "category": "sigma_pi",
       "details": "Π i=0..3 arr[i] = 30",
       "passed": true,
       "test_name": "pi_product",
-      "time_us": 3.0
+      "time_us": 5.0
     },
     {
       "category": "sigma_pi",
       "details": "Σ s_i*P_i == MSM result",
       "passed": true,
       "test_name": "sigma_msm",
-      "time_us": 309.0
+      "time_us": 414.0
     },
     {
       "category": "polynomial",
       "details": "1+2x+3x^2 at x=5 = 86",
       "passed": true,
       "test_name": "poly_eval",
-      "time_us": 4.0
+      "time_us": 7.0
     },
     {
       "category": "polynomial",
       "details": "(1+2x)+(3+4x) at x=10 = 64",
       "passed": true,
       "test_name": "poly_add",
-      "time_us": 3.0
+      "time_us": 4.0
     },
     {
       "category": "polynomial",
       "details": "(1+x)^2 at x=3 = 16",
       "passed": true,
       "test_name": "poly_mul",
-      "time_us": 15.0
+      "time_us": 17.0
     },
     {
       "category": "polynomial",
@@ -520,6 +522,34 @@
       "details": "fft(poly) == fft(mkarray) for same coefficients",
       "passed": true,
       "test_name": "fft_from_array",
+      "time_us": 0.0
+    },
+    {
+      "category": "symbolic_poly",
+      "details": "3x²+5x+7 at x=2 = 29",
+      "passed": true,
+      "test_name": "poly_uv_basic",
+      "time_us": 0.0
+    },
+    {
+      "category": "symbolic_poly",
+      "details": "symbolic poly matches poly:suv at x=10",
+      "passed": true,
+      "test_name": "poly_uv_cross_check",
+      "time_us": 0.0
+    },
+    {
+      "category": "symbolic_poly",
+      "details": "x²+y³+4 at (3,2) = 21",
+      "passed": true,
+      "test_name": "poly_mv_basic",
+      "time_us": 0.0
+    },
+    {
+      "category": "symbolic_poly",
+      "details": "2xy at (3,5) = 30",
+      "passed": true,
+      "test_name": "poly_mv_cross",
       "time_us": 0.0
     }
   ]

@@ -6,7 +6,7 @@
 use std::collections::HashMap;
 
 use ark_bls12_381::Fr;
-use ark_ff::{Field, Zero};
+use ark_ff::{Field, One, Zero};
 use ark_poly::{
     univariate::{DensePolynomial, DenseOrSparsePolynomial, SparsePolynomial as SparseUVPolynomial},
     polynomial::multivariate::{SparsePolynomial as MVSparsePolynomial, SparseTerm, Term},
@@ -268,6 +268,14 @@ fn eval_id(expr: &RecExpr<ArkLang>, id: Id, env: &Env) -> Result<Value, EvalErro
         ArkLang::PolyDUV(_) | ArkLang::PolySUV(_) | ArkLang::PolyDMLE(_)
         | ArkLang::PolySMLE(_) | ArkLang::PolyMV(_) => {
             eval_poly_constructor(expr, node, env)
+        }
+
+        // ── Symbolic Polynomial Constructor ──
+        ArkLang::Poly(children) => {
+            eval_symbolic_poly(expr, children, env)
+        }
+        ArkLang::Ids(_) => {
+            Err(EvalError::TypeError("ids: cannot be evaluated standalone, use inside (poly ...)".into()))
         }
 
         // ── Poly-Specific: PDiv, PMod, Fix ──
@@ -728,6 +736,144 @@ fn eval_conversion(expr: &RecExpr<ArkLang>, node: &ArkLang, env: &Env) -> Result
         }
 
         _ => unreachable!("eval_conversion called with non-conversion node"),
+    }
+}
+
+/// Evaluate a symbolic polynomial constructor `(poly (ids x y ...) term1 term2 ...)`.
+fn eval_symbolic_poly(
+    expr: &RecExpr<ArkLang>,
+    children: &Box<[Id]>,
+    env: &Env,
+) -> Result<Value, EvalError> {
+    if children.len() < 2 {
+        return Err(EvalError::TypeError("poly: need (ids ...) and at least one term".into()));
+    }
+    // Extract variable names from the ids node
+    let ids_node = &expr[children[0]];
+    let var_names: Vec<Symbol> = match ids_node {
+        ArkLang::Ids(ids) => {
+            ids.iter().map(|id| {
+                match &expr[*id] {
+                    ArkLang::Symbol(s) => Ok(*s),
+                    _ => Err(EvalError::TypeError("ids: all children must be symbols".into())),
+                }
+            }).collect::<Result<Vec<_>, _>>()?
+        }
+        _ => return Err(EvalError::TypeError("poly: first argument must be (ids ...)".into())),
+    };
+    let num_vars = var_names.len();
+    if num_vars == 0 {
+        return Err(EvalError::TypeError("poly: ids must declare at least one variable".into()));
+    }
+
+    // Interpret each term as a monomial
+    let mut monomials: Vec<(Fr, Vec<usize>)> = Vec::new();
+    for i in 1..children.len() {
+        let (coeff, exps) = interpret_monomial(expr, children[i], &var_names, num_vars, env)?;
+        if !coeff.is_zero() {
+            monomials.push((coeff, exps));
+        }
+    }
+
+    if num_vars == 1 {
+        // Build SparseUVPoly: Vec<(usize, Fr)> = [(power, coeff), ...]
+        let terms: Vec<(usize, Fr)> = monomials.into_iter()
+            .map(|(c, exps)| (exps[0], c))
+            .collect();
+        Ok(Value::SparseUVPoly(SparseUVPolynomial::from_coefficients_vec(terms)))
+    } else {
+        // Build MVPoly: Vec<(Fr, SparseTerm)>
+        let terms: Vec<(Fr, SparseTerm)> = monomials.into_iter()
+            .map(|(c, exps)| {
+                let pairs: Vec<(usize, usize)> = exps.into_iter()
+                    .enumerate()
+                    .filter(|(_, e)| *e > 0)
+                    .collect();
+                (c, SparseTerm::new(pairs))
+            })
+            .collect();
+        Ok(Value::MVPoly(MVSparsePolynomial::from_coefficients_vec(num_vars, terms)))
+    }
+}
+
+/// Interpret a sub-expression as a monomial: (coefficient, exponent_vector).
+/// Variables from `ids` are formal indeterminates; everything else evaluates normally.
+fn interpret_monomial(
+    expr: &RecExpr<ArkLang>,
+    id: Id,
+    var_names: &[Symbol],
+    num_vars: usize,
+    env: &Env,
+) -> Result<(Fr, Vec<usize>), EvalError> {
+    match &expr[id] {
+        ArkLang::Num(n) => {
+            Ok((int_to_fr(*n), vec![0; num_vars]))
+        }
+        ArkLang::Symbol(s) => {
+            if let Some(idx) = var_names.iter().position(|v| v == s) {
+                let mut exps = vec![0usize; num_vars];
+                exps[idx] = 1;
+                Ok((Fr::one(), exps))
+            } else {
+                // Not a formal variable — evaluate from environment as a coefficient
+                let v = eval_id(expr, id, env)?;
+                let f = v.as_field().map_err(|_| EvalError::TypeError(
+                    format!("poly: symbol '{}' is not a declared variable and could not be evaluated as a field element", s)
+                ))?;
+                Ok((f, vec![0; num_vars]))
+            }
+        }
+        ArkLang::Pow([base, exp]) => {
+            // base should be a variable symbol
+            let base_node = &expr[*base];
+            if let ArkLang::Symbol(s) = base_node {
+                if let Some(idx) = var_names.iter().position(|v| v == s) {
+                    // Evaluate exponent normally (supports expressions)
+                    let exp_val = eval_id(expr, *exp, env)?.as_int()?;
+                    if exp_val < 0 {
+                        return Err(EvalError::TypeError(
+                            format!("poly: negative exponent {} not allowed", exp_val)
+                        ));
+                    }
+                    let mut exps = vec![0usize; num_vars];
+                    exps[idx] = exp_val as usize;
+                    return Ok((Fr::one(), exps));
+                }
+            }
+            // If base is not a simple variable, fall through to normal eval
+            let v = eval_id(expr, id, env)?;
+            let f = v.as_field().map_err(|_| EvalError::TypeError(
+                "poly: pow expression that is not (pow <var> <exp>) must evaluate to a field element".into()
+            ))?;
+            Ok((f, vec![0; num_vars]))
+        }
+        ArkLang::Mul([a, b]) => {
+            let (ca, ea) = interpret_monomial(expr, *a, var_names, num_vars, env)?;
+            let (cb, eb) = interpret_monomial(expr, *b, var_names, num_vars, env)?;
+            let coeff = ca * cb;
+            let exps: Vec<usize> = ea.iter().zip(eb.iter()).map(|(x, y)| x + y).collect();
+            Ok((coeff, exps))
+        }
+        ArkLang::Neg([a]) => {
+            let (ca, ea) = interpret_monomial(expr, *a, var_names, num_vars, env)?;
+            Ok((-ca, ea))
+        }
+        ArkLang::Scale([c, m]) => {
+            // c is a scalar coefficient, m is a monomial
+            let cv = eval_id(expr, *c, env)?.as_field().map_err(|_|
+                EvalError::TypeError("poly: scale coefficient must be a field element".into())
+            )?;
+            let (cm, em) = interpret_monomial(expr, *m, var_names, num_vars, env)?;
+            Ok((cv * cm, em))
+        }
+        _ => {
+            // Fall through: evaluate normally and treat as constant coefficient
+            let v = eval_id(expr, id, env)?;
+            let f = v.as_field().map_err(|_| EvalError::TypeError(
+                format!("poly: unsupported term expression, evaluated to non-field value: {}", v.type_name())
+            ))?;
+            Ok((f, vec![0; num_vars]))
+        }
     }
 }
 
@@ -1436,5 +1582,95 @@ mod tests {
             let point_eval = eval_str("(eval (poly:duv 1 2 3 4) x)", &env2).unwrap().as_field().unwrap();
             assert_eq!(evals[i].as_field().unwrap(), point_eval);
         }
+    }
+
+    // ── Symbolic Polynomial Constructor Tests ──
+
+    #[test]
+    fn test_poly_univariate_basic() {
+        // (poly (ids x) (mul 3 (pow x 2)) (mul 5 x) 7) = 3x² + 5x + 7
+        let env = empty_env();
+        let v = eval_str("(eval (poly (ids x) (mul 3 (pow x 2)) (mul 5 x) 7) 2)", &env).unwrap();
+        // 3*4 + 5*2 + 7 = 12 + 10 + 7 = 29
+        assert_eq!(v.as_field().unwrap(), Fr::from(29u64));
+    }
+
+    #[test]
+    fn test_poly_univariate_matches_suv() {
+        // (poly (ids x) (mul 3 (pow x 2)) (mul 5 x) 7) should match (poly:suv 0 7 1 5 2 3)
+        let env = empty_env();
+        let from_sym = eval_str("(eval (poly (ids x) (mul 3 (pow x 2)) (mul 5 x) 7) 10)", &env).unwrap();
+        let from_suv = eval_str("(eval (poly:suv 0 7 1 5 2 3) 10)", &env).unwrap();
+        assert_eq!(from_sym.as_field().unwrap(), from_suv.as_field().unwrap());
+    }
+
+    #[test]
+    fn test_poly_bare_variable() {
+        // (poly (ids x) x) = x
+        let env = empty_env();
+        let v = eval_str("(eval (poly (ids x) x) 42)", &env).unwrap();
+        assert_eq!(v.as_field().unwrap(), Fr::from(42u64));
+    }
+
+    #[test]
+    fn test_poly_constant() {
+        // (poly (ids x) 5) = constant polynomial 5
+        let env = empty_env();
+        let v = eval_str("(eval (poly (ids x) 5) 99)", &env).unwrap();
+        assert_eq!(v.as_field().unwrap(), Fr::from(5u64));
+    }
+
+    #[test]
+    fn test_poly_negative_coeff() {
+        // (poly (ids x) (neg (pow x 2)) x) = -x² + x
+        let env = empty_env();
+        let v = eval_str("(eval (poly (ids x) (neg (pow x 2)) x) 3)", &env).unwrap();
+        // -9 + 3 = -6 in the field
+        let expected = -Fr::from(9u64) + Fr::from(3u64);
+        assert_eq!(v.as_field().unwrap(), expected);
+    }
+
+    #[test]
+    fn test_poly_multivariate() {
+        // (poly (ids x y) (pow x 2) (pow y 3) 4) = x² + y³ + 4
+        let env = empty_env();
+        let v = eval_str(
+            "(eval (poly (ids x y) (pow x 2) (pow y 3) 4) (mkarray 3 2))",
+            &env,
+        ).unwrap();
+        // 9 + 8 + 4 = 21
+        assert_eq!(v.as_field().unwrap(), Fr::from(21u64));
+    }
+
+    #[test]
+    fn test_poly_multivariate_cross_term() {
+        // (poly (ids x y) (mul 2 (mul x y))) = 2xy
+        let env = empty_env();
+        let v = eval_str(
+            "(eval (poly (ids x y) (mul 2 (mul x y))) (mkarray 3 5))",
+            &env,
+        ).unwrap();
+        // 2*3*5 = 30
+        assert_eq!(v.as_field().unwrap(), Fr::from(30u64));
+    }
+
+    #[test]
+    fn test_poly_env_exponent() {
+        // (poly (ids x) (pow x n)) where n comes from environment
+        let mut env = empty_env();
+        env.insert("n".into(), Value::Int(3));
+        let v = eval_str("(eval (poly (ids x) (pow x n)) 2)", &env).unwrap();
+        // 2³ = 8
+        assert_eq!(v.as_field().unwrap(), Fr::from(8u64));
+    }
+
+    #[test]
+    fn test_poly_env_coefficient() {
+        // (poly (ids x) (mul c (pow x 2))) where c comes from environment
+        let mut env = empty_env();
+        env.insert("c".into(), Value::Field(Fr::from(7u64)));
+        let v = eval_str("(eval (poly (ids x) (mul c (pow x 2))) 3)", &env).unwrap();
+        // 7*9 = 63
+        assert_eq!(v.as_field().unwrap(), Fr::from(63u64));
     }
 }

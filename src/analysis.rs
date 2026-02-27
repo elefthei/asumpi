@@ -135,6 +135,17 @@ impl Analysis<ArkLang> for TypeAnalysis {
                 types.insert(ArkType::MVPoly);
             }
 
+            ArkLang::Ids(args) => {
+                for id in args.iter() { free_vars.extend(&cd(id).free_vars); }
+            }
+
+            ArkLang::Poly(args) => {
+                for id in args.iter() { free_vars.extend(&cd(id).free_vars); }
+                // Could be SparseUVPoly (1 var) or MVPoly (>1 var)
+                types.insert(ArkType::SparsePoly);
+                types.insert(ArkType::MVPoly);
+            }
+
             ArkLang::PDiv([a, b]) | ArkLang::PMod([a, b]) => {
                 free_vars.extend(&cd(a).free_vars);
                 free_vars.extend(&cd(b).free_vars);

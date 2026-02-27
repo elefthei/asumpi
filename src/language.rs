@@ -1,6 +1,6 @@
 // arkΣΠ Language Definition
 //
-// A unified sum-of-products language with 38 nodes.
+// A unified sum-of-products language with 40 nodes.
 // Generic arithmetic, indexed Σ/Π, explicit conversions.
 
 use egg::*;
@@ -27,12 +27,14 @@ define_language! {
         "deg"   = Deg([Id; 1]),
         "nvars" = NVars([Id; 1]),
 
-        // ── Polynomial Constructors (5) ──
+        // ── Polynomial Constructors (5 + 2 symbolic) ──
         "poly:duv"  = PolyDUV(Box<[Id]>),
         "poly:suv"  = PolySUV(Box<[Id]>),
         "poly:dmle" = PolyDMLE([Id; 2]),
         "poly:smle" = PolySMLE([Id; 2]),
         "poly:mv"   = PolyMV([Id; 3]),
+        "ids"       = Ids(Box<[Id]>),
+        "poly"      = Poly(Box<[Id]>),
 
         // ── Poly-Specific (3) ──
         "pdiv" = PDiv([Id; 2]),

@@ -861,7 +861,46 @@ fn main() {
     }
 
     // ═══════════════════════════════════════════════
-    // 11. LANGUAGE STATISTICS
+    // 11. SYMBOLIC POLYNOMIAL CONSTRUCTOR
+    // ═══════════════════════════════════════════════
+    println!("\n--- Symbolic Polynomial Constructor ---");
+
+    {
+        // Univariate: 3x² + 5x + 7 at x=2 = 29
+        let v = eval_str("(eval (poly (ids x) (mul 3 (pow x 2)) (mul 5 x) 7) 2)", &empty_env()).unwrap();
+        let passed = v.as_field().unwrap() == Fr::from(29u64);
+        println!("  poly UV basic: {}", if passed { "PASS" } else { "FAIL" });
+        results.push(TestResult { category: "symbolic_poly".into(), test_name: "poly_uv_basic".into(), passed, details: "3x²+5x+7 at x=2 = 29".into(), time_us: 0.0 });
+    }
+
+    {
+        // Cross-check: symbolic matches poly:suv
+        let env = empty_env();
+        let sym = eval_str("(eval (poly (ids x) (mul 3 (pow x 2)) (mul 5 x) 7) 10)", &env).unwrap().as_field().unwrap();
+        let suv = eval_str("(eval (poly:suv 0 7 1 5 2 3) 10)", &env).unwrap().as_field().unwrap();
+        let passed = sym == suv;
+        println!("  poly UV matches poly:suv: {}", if passed { "PASS" } else { "FAIL" });
+        results.push(TestResult { category: "symbolic_poly".into(), test_name: "poly_uv_cross_check".into(), passed, details: "symbolic poly matches poly:suv at x=10".into(), time_us: 0.0 });
+    }
+
+    {
+        // Multivariate: x² + y³ + 4 at (3, 2) = 21
+        let v = eval_str("(eval (poly (ids x y) (pow x 2) (pow y 3) 4) (mkarray 3 2))", &empty_env()).unwrap();
+        let passed = v.as_field().unwrap() == Fr::from(21u64);
+        println!("  poly MV: {}", if passed { "PASS" } else { "FAIL" });
+        results.push(TestResult { category: "symbolic_poly".into(), test_name: "poly_mv_basic".into(), passed, details: "x²+y³+4 at (3,2) = 21".into(), time_us: 0.0 });
+    }
+
+    {
+        // Cross term: 2xy at (3, 5) = 30
+        let v = eval_str("(eval (poly (ids x y) (mul 2 (mul x y))) (mkarray 3 5))", &empty_env()).unwrap();
+        let passed = v.as_field().unwrap() == Fr::from(30u64);
+        println!("  poly MV cross term: {}", if passed { "PASS" } else { "FAIL" });
+        results.push(TestResult { category: "symbolic_poly".into(), test_name: "poly_mv_cross".into(), passed, details: "2xy at (3,5) = 30".into(), time_us: 0.0 });
+    }
+
+    // ═══════════════════════════════════════════════
+    // 12. LANGUAGE STATISTICS
     // ═══════════════════════════════════════════════
     println!("\n--- Language Statistics ---");
 
@@ -869,7 +908,7 @@ fn main() {
         "node_types": {
             "generic_arithmetic": ["add", "neg", "mul", "inv", "scale", "pow"],
             "eval_queries": ["eval", "deg", "nvars"],
-            "poly_constructors": ["poly:duv", "poly:suv", "poly:dmle", "poly:smle", "poly:mv"],
+            "poly_constructors": ["poly:duv", "poly:suv", "poly:dmle", "poly:smle", "poly:mv", "ids", "poly"],
             "poly_specific": ["pdiv", "pmod", "fix"],
             "indexed": ["bound", "Σ", "Π"],
             "conversions": ["densify", "sparsify", "as-uv", "as-mle"],
@@ -879,7 +918,7 @@ fn main() {
             "comparison": ["eq"],
             "literals": ["Num", "Symbol"],
         },
-        "total_node_types": 38,
+        "total_node_types": 40,
         "field_type": "BLS12-381 Fr (scalar field)",
         "curve_type": "BLS12-381 G1",
         "syntax": "S-expressions (egg-native)",
@@ -887,10 +926,10 @@ fn main() {
         "egg_compatible": true,
     });
 
-    println!("  Total node types: 38");
+    println!("  Total node types: 40");
     println!("  Generic arithmetic: 6 (add, neg, mul, inv, scale, pow)");
     println!("  Evaluation & queries: 3 (eval, deg, nvars)");
-    println!("  Poly constructors: 5 (poly:duv, poly:suv, poly:dmle, poly:smle, poly:mv)");
+    println!("  Poly constructors: 7 (poly:duv, poly:suv, poly:dmle, poly:smle, poly:mv, ids, poly)");
     println!("  Poly-specific: 3 (pdiv, pmod, fix)");
     println!("  Indexed Σ/Π: 3 (bound, Σ, Π)");
     println!("  Conversions: 4 (densify, sparsify, as-uv, as-mle)");
