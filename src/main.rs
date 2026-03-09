@@ -958,6 +958,7 @@ fn main() {
     let lang_stats = serde_json::json!({
         "node_types": {
             "typed_arithmetic": ["add", "neg", "mul", "inv", "pow", "coerce"],
+            "inner_product": ["dot"],
             "type_tags": ["Field", "Curve", "Int", "Bool", "DensePoly", "SparsePoly", "DenseMLE", "SparseMLE", "MVPoly", "Array", "Pair", "arrayof"],
             "eval_queries": ["eval", "deg", "numvars"],
             "symbolic_constructors": ["ids", "poly", "mle"],
@@ -980,6 +981,7 @@ fn main() {
 
     println!("  Total node types: 43");
     println!("  Typed arithmetic: 6 (add, neg, mul, inv, pow, coerce)");
+    println!("  Inner product: 1 (dot)");
     println!("  Type tags: 12 (Field, Curve, Int, Bool, DensePoly, SparsePoly, DenseMLE, SparseMLE, MVPoly, Array, Pair, arrayof)");
     println!("  Evaluation & queries: 3 (eval, deg, numvars)");
     println!("  Symbolic constructors: 3 (ids, poly, mle)");

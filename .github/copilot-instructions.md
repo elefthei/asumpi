@@ -4,7 +4,7 @@
 
 ```bash
 cargo build --release
-cargo test --release                      # full suite (209 lib + 44 algebraic + 29 property)
+cargo test --release                      # full suite (217 lib + 44 algebraic + 37 property)
 cargo test --release --lib <test_name>    # single unit test
 cargo test --release --test algebraic_laws <test_name>  # single algebraic law test
 cargo test --release --test property_tests <test_name>  # single property test
@@ -31,7 +31,7 @@ S-expression string
 
 | Module | Role |
 |--------|------|
-| `language.rs` | `ArkLang` enum via `define_language!` — 43 node types (typed arithmetic, type tags, coerce, polynomials, Σ/Π loops, FFT, arrays, control flow) |
+| `language.rs` | `ArkLang` enum via `define_language!` — 43 node types (typed arithmetic, dot product, type tags, coerce, polynomials, Σ/Π loops, FFT, arrays, control flow) |
 | `value.rs` | `Value` enum (11 variants: Field, Curve, Polynomial, MLE, MVPoly, SparseUVPoly, SparseMLE, Array, Pair, Bool, Int) + `ArkType` enum (with `ArrayOf(Box<ArkType>)`) + `EvalError` |
 | `eval.rs` | Recursive top-down evaluator. `eval(expr, env) -> Result<Value, EvalError>`. Type-validated arithmetic with explicit type tags. Also: `specialize()` for bound-variable substitution |
 | `analysis.rs` | `TypeAnalysis` (egg `Analysis` trait) — tracks type over-approximation + free variables per e-class. `IndependentOf` condition for guarded rewrites |
@@ -51,10 +51,10 @@ All runtime types are backed by arkworks (BLS12-381):
 ## Conventions
 
 ### Explicitly typed arithmetic
-All arithmetic ops (`add`, `mul`, `neg`, `scale`, etc.) carry explicit type tags: `(add Field Field a b)`, `(mul DensePoly DensePoly p q)`. Parameterized types like `(arrayof Field)` are supported for array operations. The evaluator validates types at runtime via `validate_type()`.
+All arithmetic ops (`add`, `mul`, `neg`, etc.) carry explicit type tags: `(add Field Field a b)`, `(mul DensePoly DensePoly p q)`. Scalar multiplication uses `(mul Field T scalar obj)` — `scale` was absorbed into `mul`. `dot` computes inner products. Parameterized types like `(arrayof Field)` are supported for array operations. The evaluator validates types at runtime via `validate_type()`.
 
 ### Type coercion
-No implicit coercions except Int→Field (in `validate_type`). All other conversions require explicit `(coerce Src Dst val)`. The coerce lattice supports: identity, Int/Field→polynomial embedding, dense↔sparse representation, MLE↔poly domain changes, Array→DensePoly (coefficients), Array→DenseMLE (evaluations).
+No implicit coercions except Int→Field (in `validate_type`). All other conversions require explicit `(coerce Src Dst val)`. The coerce lattice supports: identity, Int/Field→polynomial embedding, dense↔sparse representation, MLE↔poly domain changes, Array→DensePoly (coefficients), Array→DenseMLE (evaluations). Scalar multiplication uses `(mul Field T scalar obj)` — `scale` was absorbed into `mul`.
 
 ### Polynomial construction
 Dense polynomials: `(coerce (arrayof Field) DensePoly (array 1 2 3))` — coefficients as array.
@@ -63,7 +63,7 @@ Sparse polys: `(poly (ids x) ...)` — symbolic constructor with monomial terms.
 Multivariate: `(poly (ids x y) ...)` — 2+ variables produces MVPoly.
 
 ### Guarded rewrite rules
-Loop-invariant factor extraction uses `IndependentOf` — a custom egg `Condition` that checks free-variable sets from `TypeAnalysis`. A rewrite like `(Σ ?i ?lo ?hi (scale ?T ?c ?f)) => (scale ?T ?c (Σ ?i ?lo ?hi ?f))` only fires when `?c` has no free-variable dependency on `?i`.
+Loop-invariant factor extraction uses `IndependentOf` — a custom egg `Condition` that checks free-variable sets from `TypeAnalysis`. A rewrite like `(Σ ?i ?lo ?hi (mul Field ?T ?c ?f)) => (mul Field ?T ?c (Σ ?i ?lo ?hi ?f))` only fires when `?c` has no free-variable dependency on `?i`.
 
 ### Evaluation is top-down recursive
 Not bottom-up over `RecExpr`'s flat vector. This is intentional — `let` scoping and `if` laziness require it. Shared subexpressions may evaluate multiple times; correctness over efficiency.
