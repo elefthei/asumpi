@@ -871,6 +871,9 @@ fn validate_type(val: &Value, expected: ArkType) -> Result<(), EvalError> {
     let actual = val.ark_type();
     if actual == expected {
         Ok(())
+    } else if actual == ArkType::Int && expected == ArkType::Field {
+        // Int auto-coerces to Field (via as_field())
+        Ok(())
     } else {
         Err(EvalError::TypeMismatch {
             expected: format!("{:?}", expected),
@@ -1663,7 +1666,7 @@ mod tests {
 
     #[test]
     fn test_field_mul() {
-        let v = eval_str("(mul 6 7)", &empty_env()).unwrap();
+        let v = eval_str("(tmul Int Int 6 7)", &empty_env()).unwrap();
         assert_eq!(v, Value::Int(42));
     }
 
@@ -1675,14 +1678,14 @@ mod tests {
 
     #[test]
     fn test_field_inv() {
-        let v = eval_str("(mul 3 (tinv Field (coerce Int Field 3)))", &empty_env()).unwrap();
+        let v = eval_str("(tmul Field Field 3 (tinv Field (coerce Int Field 3)))", &empty_env()).unwrap();
         assert_eq!(v, Value::Int(1));
     }
 
     #[test]
     fn test_field_div() {
         // 42 / 7 = 6: (mul 42 (inv 7))
-        let v = eval_str("(mul 42 (tinv Field (coerce Int Field 7)))", &empty_env()).unwrap();
+        let v = eval_str("(tmul Field Field 42 (tinv Field (coerce Int Field 7)))", &empty_env()).unwrap();
         assert_eq!(v, Value::Int(6));
     }
 
@@ -1706,7 +1709,7 @@ mod tests {
 
     #[test]
     fn test_field_multiplicative_identity() {
-        let v = eval_str("(mul 42 1)", &empty_env()).unwrap();
+        let v = eval_str("(tmul Int Int 42 1)", &empty_env()).unwrap();
         assert_eq!(v, Value::Int(42));
     }
 
@@ -1730,13 +1733,13 @@ mod tests {
 
     #[test]
     fn test_let_binding() {
-        let v = eval_str("(let x 5 (mul x x))", &empty_env()).unwrap();
+        let v = eval_str("(let x 5 (tmul Int Int x x))", &empty_env()).unwrap();
         assert_eq!(v, Value::Int(25));
     }
 
     #[test]
     fn test_let_nested() {
-        let v = eval_str("(let x 3 (let y 4 (add (mul x x) (mul y y))))", &empty_env())
+        let v = eval_str("(let x 3 (let y 4 (add (tmul Int Int x x) (tmul Int Int y y))))", &empty_env())
             .unwrap();
         assert_eq!(v, Value::Int(25));
     }
@@ -1853,7 +1856,7 @@ mod tests {
 
     #[test]
     fn test_poly_mul() {
-        let v = eval_str("(eval (mul (poly:duv 1 1) (poly:duv 1 1)) 3)", &empty_env()).unwrap();
+        let v = eval_str("(eval (tmul DensePoly DensePoly (poly:duv 1 1) (poly:duv 1 1)) 3)", &empty_env()).unwrap();
         assert_eq!(v, Value::Int(16));
     }
 
@@ -2017,7 +2020,7 @@ mod tests {
     #[test]
     fn test_nested_field_expression() {
         // (3 + 4) * (5 - 2) = 7 * 3 = 21
-        let v = eval_str("(mul (add 3 4) (add 5 (tneg Int 2)))", &empty_env()).unwrap();
+        let v = eval_str("(tmul Int Int (tadd Int Int 3 4) (tadd Int Int 5 (tneg Int 2)))", &empty_env()).unwrap();
         assert_eq!(v, Value::Int(21));
     }
 
@@ -2025,7 +2028,7 @@ mod tests {
     fn test_horner_form() {
         let mut env = empty_env();
         env.insert("x".into(), Value::Int(5));
-        let v = eval_str("(add 1 (mul x (add 2 (mul x 3))))", &env).unwrap();
+        let v = eval_str("(tadd Int Int 1 (tmul Int Int x (tadd Int Int 2 (tmul Int Int x 3))))", &env).unwrap();
         assert_eq!(v, Value::Int(86));
     }
 
@@ -2039,7 +2042,7 @@ mod tests {
             .as_field()
             .unwrap();
         let horner_result = eval_str(
-            "(add 5 (mul x (add 3 (mul x (add 2 (mul x 1))))))",
+            "(tadd Field Field 5 (tmul Field Field x (tadd Field Field 3 (tmul Field Field x (tadd Field Field 2 (tmul Field Field x 1))))))",
             &env,
         )
         .unwrap()
@@ -2299,18 +2302,18 @@ mod tests {
 
     #[test]
     fn test_poly_univariate_basic() {
-        // (poly (ids x) (mul 3 (tpow Field x 2)) (mul 5 x) 7) = 3x² + 5x + 7
+        // (poly (ids x) (tmul Field Field 3 (tpow Field x 2)) (tmul Field Field 5 x) 7) = 3x² + 5x + 7
         let env = empty_env();
-        let v = eval_str("(eval (poly (ids x) (mul 3 (tpow Field x 2)) (mul 5 x) 7) 2)", &env).unwrap();
+        let v = eval_str("(eval (poly (ids x) (tmul Field Field 3 (tpow Field x 2)) (tmul Field Field 5 x) 7) 2)", &env).unwrap();
         // 3*4 + 5*2 + 7 = 12 + 10 + 7 = 29
         assert_eq!(v.as_field().unwrap(), Fr::from(29u64));
     }
 
     #[test]
     fn test_poly_univariate_matches_suv() {
-        // (poly (ids x) (mul 3 (tpow Field x 2)) (mul 5 x) 7) should match (poly:suv 0 7 1 5 2 3)
+        // (poly (ids x) (tmul Field Field 3 (tpow Field x 2)) (tmul Field Field 5 x) 7) should match (poly:suv 0 7 1 5 2 3)
         let env = empty_env();
-        let from_sym = eval_str("(eval (poly (ids x) (mul 3 (tpow Field x 2)) (mul 5 x) 7) 10)", &env).unwrap();
+        let from_sym = eval_str("(eval (poly (ids x) (tmul Field Field 3 (tpow Field x 2)) (tmul Field Field 5 x) 7) 10)", &env).unwrap();
         let from_suv = eval_str("(eval (poly:suv 0 7 1 5 2 3) 10)", &env).unwrap();
         assert_eq!(from_sym.as_field().unwrap(), from_suv.as_field().unwrap());
     }
@@ -2355,10 +2358,10 @@ mod tests {
 
     #[test]
     fn test_poly_multivariate_cross_term() {
-        // (poly (ids x y) (mul 2 (mul x y))) = 2xy
+        // (poly (ids x y) (tmul Field Field 2 (tmul Field Field x y))) = 2xy
         let env = empty_env();
         let v = eval_str(
-            "(eval (poly (ids x y) (mul 2 (mul x y))) (mkarray 3 5))",
+            "(eval (poly (ids x y) (tmul Field Field 2 (tmul Field Field x y))) (mkarray 3 5))",
             &env,
         ).unwrap();
         // 2*3*5 = 30
@@ -2377,10 +2380,10 @@ mod tests {
 
     #[test]
     fn test_poly_env_coefficient() {
-        // (poly (ids x) (mul c (tpow Field x 2))) where c comes from environment
+        // (poly (ids x) (tmul Field Field c (tpow Field x 2))) where c comes from environment
         let mut env = empty_env();
         env.insert("c".into(), Value::Field(Fr::from(7u64)));
-        let v = eval_str("(eval (poly (ids x) (mul c (tpow Field x 2))) 3)", &env).unwrap();
+        let v = eval_str("(eval (poly (ids x) (tmul Field Field c (tpow Field x 2))) 3)", &env).unwrap();
         // 7*9 = 63
         assert_eq!(v.as_field().unwrap(), Fr::from(63u64));
     }
@@ -2654,10 +2657,12 @@ mod tests {
     }
 
     #[test]
-    fn test_coerce_type_mismatch() {
+    fn test_coerce_int_as_field_to_dense() {
         let env = empty_env();
-        // Value is Int(5) but src tag says Field → type mismatch
-        assert!(eval_str("(coerce Field DensePoly 5)", &env).is_err());
+        // Int(5) with src tag Field succeeds (Int auto-coerces to Field)
+        let v = eval_str("(coerce Field DensePoly 5)", &env).unwrap();
+        let p = v.as_polynomial().unwrap();
+        assert_eq!(p.evaluate(&Fr::from(99u64)), Fr::from(5u64));
     }
 
     #[test]
@@ -2678,7 +2683,7 @@ mod tests {
 
         let vi = Value::Int(7);
         assert!(validate_type(&vi, ArkType::Int).is_ok());
-        assert!(validate_type(&vi, ArkType::Field).is_err());
+        assert!(validate_type(&vi, ArkType::Field).is_ok()); // Int auto-coerces to Field
     }
 
     // ═══════════════════════════════════════════════
@@ -2743,11 +2748,11 @@ mod tests {
     }
 
     #[test]
-    fn test_tadd_type_mismatch() {
+    fn test_tadd_int_as_field() {
         let env = empty_env();
-        // Value is Int(3) but type tag says Field → mismatch
-        let result = eval_str("(tadd Field Field 3 7)", &env);
-        assert!(result.is_err());
+        // Int values auto-coerce to Field when type tag is Field
+        let result = eval_str("(tadd Field Field 3 7)", &env).unwrap();
+        assert_eq!(result.as_field().unwrap(), Fr::from(10u64));
     }
 
     #[test]
@@ -2790,9 +2795,11 @@ mod tests {
     }
 
     #[test]
-    fn test_tneg_type_mismatch() {
+    fn test_tneg_int_as_field() {
         let env = empty_env();
-        assert!(eval_str("(tneg Field 5)", &env).is_err());
+        // Int auto-coerces to Field when type tag is Field
+        let v = eval_str("(tneg Field 5)", &env).unwrap();
+        assert_eq!(v.as_field().unwrap(), -Fr::from(5u64));
     }
 
     #[test]

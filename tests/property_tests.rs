@@ -36,8 +36,8 @@ proptest! {
         let b = fr_from_u64(b_val);
         let env = env_with_fields(&[("a", a), ("b", b)]);
 
-        let r1 = eval_str("(mul a b)", &env).as_field().unwrap();
-        let r2 = eval_str("(mul b a)", &env).as_field().unwrap();
+        let r1 = eval_str("(tmul Field Field a b)", &env).as_field().unwrap();
+        let r2 = eval_str("(tmul Field Field b a)", &env).as_field().unwrap();
         prop_assert_eq!(r1, r2);
     }
 
@@ -56,8 +56,8 @@ proptest! {
         let (a, b, c) = (fr_from_u64(a_val), fr_from_u64(b_val), fr_from_u64(c_val));
         let env = env_with_fields(&[("a", a), ("b", b), ("c", c)]);
 
-        let lhs = eval_str("(mul (mul a b) c)", &env).as_field().unwrap();
-        let rhs = eval_str("(mul a (mul b c))", &env).as_field().unwrap();
+        let lhs = eval_str("(mul (tmul Field Field a b) c)", &env).as_field().unwrap();
+        let rhs = eval_str("(tmul Field Field a (tmul Field Field b c))", &env).as_field().unwrap();
         prop_assert_eq!(lhs, rhs);
     }
 
@@ -66,8 +66,8 @@ proptest! {
         let (a, b, c) = (fr_from_u64(a_val), fr_from_u64(b_val), fr_from_u64(c_val));
         let env = env_with_fields(&[("a", a), ("b", b), ("c", c)]);
 
-        let lhs = eval_str("(mul a (add b c))", &env).as_field().unwrap();
-        let rhs = eval_str("(add (mul a b) (mul a c))", &env).as_field().unwrap();
+        let lhs = eval_str("(tmul Field Field a (add b c))", &env).as_field().unwrap();
+        let rhs = eval_str("(add (tmul Field Field a b) (tmul Field Field a c))", &env).as_field().unwrap();
         prop_assert_eq!(lhs, rhs);
     }
 
@@ -85,7 +85,7 @@ proptest! {
         let a = fr_from_u64(a_val);
         let env = env_with_fields(&[("a", a)]);
 
-        let r = eval_str("(mul a 1)", &env).as_field().unwrap();
+        let r = eval_str("(tmul Field Field a 1)", &env).as_field().unwrap();
         prop_assert_eq!(r, a);
     }
 
@@ -103,7 +103,7 @@ proptest! {
         let a = fr_from_u64(a_val);
         let env = env_with_fields(&[("a", a)]);
 
-        let r = eval_str("(mul a (tinv Field a))", &env).as_field().unwrap();
+        let r = eval_str("(tmul Field Field a (tinv Field a))", &env).as_field().unwrap();
         prop_assert_eq!(r, Fr::from(1u64));
     }
 
@@ -131,7 +131,7 @@ proptest! {
         let a = fr_from_u64(a_val);
         let env = env_with_fields(&[("a", a)]);
 
-        let r = eval_str("(mul a 0)", &env).as_field().unwrap();
+        let r = eval_str("(tmul Field Field a 0)", &env).as_field().unwrap();
         prop_assert!(r.is_zero());
     }
 }
@@ -244,7 +244,7 @@ proptest! {
         let env = env_with_fields(&[("c0", fc0), ("c1", fc1), ("c2", fc2), ("x", fx)]);
 
         let poly_r = eval_str("(eval (poly:duv c0 c1 c2) x)", &env).as_field().unwrap();
-        let horner_r = eval_str("(add c0 (mul x (add c1 (mul x c2))))", &env).as_field().unwrap();
+        let horner_r = eval_str("(add c0 (tmul Field Field x (add c1 (tmul Field Field x c2))))", &env).as_field().unwrap();
         prop_assert_eq!(poly_r, horner_r);
     }
 
@@ -277,8 +277,8 @@ proptest! {
             ("x", fr_from_u64(x_val)),
         ]);
 
-        let r1 = eval_str("(eval (mul (poly:duv a0 a1) (poly:duv b0 b1)) x)", &env).as_field().unwrap();
-        let r2 = eval_str("(eval (mul (poly:duv b0 b1) (poly:duv a0 a1)) x)", &env).as_field().unwrap();
+        let r1 = eval_str("(eval (tmul DensePoly DensePoly (poly:duv a0 a1) (poly:duv b0 b1)) x)", &env).as_field().unwrap();
+        let r2 = eval_str("(eval (tmul DensePoly DensePoly (poly:duv b0 b1) (poly:duv a0 a1)) x)", &env).as_field().unwrap();
         prop_assert_eq!(r1, r2);
     }
 

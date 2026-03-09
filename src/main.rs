@@ -46,14 +46,14 @@ fn main() {
     let field_tests = vec![
         ("add basic", "(add 3 7)", 10i64),
         ("sub via neg", "(add 10 (tneg Int 3))", 7),
-        ("mul basic", "(mul 6 7)", 42),
+        ("mul basic", "(tmul Int Int 6 7)", 42),
         ("additive identity", "(add 42 0)", 42),
-        ("multiplicative identity", "(mul 42 1)", 42),
-        ("mul by zero", "(mul 42 0)", 0),
+        ("multiplicative identity", "(tmul Int Int 42 1)", 42),
+        ("mul by zero", "(tmul Int Int 42 0)", 0),
         ("double negation", "(tneg Int (tneg Int 5))", 5),
         ("sub self", "(add 99 (tneg Int 99))", 0),
         ("nested add", "(add (add 1 2) (add 3 4))", 10),
-        ("distributivity", "(mul 3 (add 4 5))", 27),
+        ("distributivity", "(tmul Int Int 3 (tadd Int Int 4 5))", 27),
         ("power", "(tpow Field (coerce Int Field 2) 10)", 1024),
     ];
 
@@ -86,7 +86,7 @@ fn main() {
     // Inverse
     {
         let start = Instant::now();
-        let r = eval_str("(mul 3 (tinv Field (coerce Int Field 3)))", &empty_env());
+        let r = eval_str("(tmul Field Field 3 (tinv Field (coerce Int Field 3)))", &empty_env());
         let elapsed = start.elapsed().as_micros() as f64;
         let passed = matches!(&r, Ok(v) if *v == Value::Int(1));
         println!("  inv*self=1: {}", if passed { "PASS" } else { "FAIL" });
@@ -101,7 +101,7 @@ fn main() {
 
     {
         let start = Instant::now();
-        let r = eval_str("(mul 42 (tinv Field (coerce Int Field 7)))", &empty_env());
+        let r = eval_str("(tmul Field Field 42 (tinv Field (coerce Int Field 7)))", &empty_env());
         let elapsed = start.elapsed().as_micros() as f64;
         let passed = matches!(&r, Ok(v) if *v == Value::Int(6));
         println!("  div: {}", if passed { "PASS" } else { "FAIL" });
@@ -153,8 +153,8 @@ fn main() {
         });
 
         let start = Instant::now();
-        let r1 = eval_str("(mul a b)", &env).unwrap().as_field().unwrap();
-        let r2 = eval_str("(mul b a)", &env).unwrap().as_field().unwrap();
+        let r1 = eval_str("(tmul Field Field a b)", &env).unwrap().as_field().unwrap();
+        let r2 = eval_str("(tmul Field Field b a)", &env).unwrap().as_field().unwrap();
         let elapsed = start.elapsed().as_micros() as f64;
         let passed = r1 == r2;
         println!("  mul commutativity: {}", if passed { "PASS" } else { "FAIL" });
@@ -169,8 +169,8 @@ fn main() {
         let c = Fr::rand(&mut rng);
         env.insert("c".into(), Value::Field(c));
         let start = Instant::now();
-        let lhs = eval_str("(mul a (add b c))", &env).unwrap().as_field().unwrap();
-        let rhs = eval_str("(add (mul a b) (mul a c))", &env).unwrap().as_field().unwrap();
+        let lhs = eval_str("(tmul Field Field a (add b c))", &env).unwrap().as_field().unwrap();
+        let rhs = eval_str("(add (tmul Field Field a b) (tmul Field Field a c))", &env).unwrap().as_field().unwrap();
         let elapsed = start.elapsed().as_micros() as f64;
         let passed = lhs == rhs;
         println!("  distributivity: {}", if passed { "PASS" } else { "FAIL" });
@@ -197,8 +197,8 @@ fn main() {
         });
 
         let start = Instant::now();
-        let lhs = eval_str("(mul (mul a b) c)", &env).unwrap().as_field().unwrap();
-        let rhs = eval_str("(mul a (mul b c))", &env).unwrap().as_field().unwrap();
+        let lhs = eval_str("(mul (tmul Field Field a b) c)", &env).unwrap().as_field().unwrap();
+        let rhs = eval_str("(tmul Field Field a (tmul Field Field b c))", &env).unwrap().as_field().unwrap();
         let elapsed = start.elapsed().as_micros() as f64;
         let passed = lhs == rhs;
         println!("  mul associativity: {}", if passed { "PASS" } else { "FAIL" });
@@ -224,7 +224,7 @@ fn main() {
         });
 
         let start = Instant::now();
-        let r = eval_str("(mul a (tinv Field a))", &env).unwrap().as_field().unwrap();
+        let r = eval_str("(tmul Field Field a (tinv Field a))", &env).unwrap().as_field().unwrap();
         let elapsed = start.elapsed().as_micros() as f64;
         let passed = r == Fr::from(1u64);
         println!("  mul inverse: {}", if passed { "PASS" } else { "FAIL" });
@@ -435,7 +435,7 @@ fn main() {
 
     {
         let start = Instant::now();
-        let v = eval_str("(eval (mul (poly:duv 1 1) (poly:duv 1 1)) 3)", &empty_env())
+        let v = eval_str("(eval (tmul DensePoly DensePoly (poly:duv 1 1) (poly:duv 1 1)) 3)", &empty_env())
             .unwrap()
             .as_field()
             .unwrap();
@@ -468,7 +468,7 @@ fn main() {
             .unwrap();
 
         let horner_result = eval_str(
-            "(add c0 (mul x (add c1 (mul x (add c2 (mul x (add c3 (mul x c4))))))))",
+            "(add c0 (tmul Field Field x (add c1 (tmul Field Field x (add c2 (tmul Field Field x (add c3 (tmul Field Field x c4))))))))",
             &env,
         )
         .unwrap()
@@ -705,14 +705,14 @@ fn main() {
     println!("\n--- Let Bindings & Control Flow ---");
 
     {
-        let v = eval_str("(let x 5 (mul x x))", &empty_env()).unwrap();
+        let v = eval_str("(let x 5 (tmul Int Int x x))", &empty_env()).unwrap();
         let passed = v == Value::Int(25);
         println!("  let binding: {}", if passed { "PASS" } else { "FAIL" });
         results.push(TestResult { category: "control_flow".into(), test_name: "let_binding".into(), passed, details: "let x=5 in x*x = 25".into(), time_us: 0.0 });
     }
 
     {
-        let v = eval_str("(let x 3 (let y 4 (add (mul x x) (mul y y))))", &empty_env()).unwrap();
+        let v = eval_str("(let x 3 (let y 4 (add (tmul Int Int x x) (tmul Int Int y y))))", &empty_env()).unwrap();
         let passed = v == Value::Int(25);
         println!("  nested let: {}", if passed { "PASS" } else { "FAIL" });
         results.push(TestResult { category: "control_flow".into(), test_name: "nested_let".into(), passed, details: "let x=3 in let y=4 in x^2+y^2 = 25".into(), time_us: 0.0 });
@@ -764,7 +764,7 @@ fn main() {
     println!("\n--- Complex Integration Tests ---");
 
     {
-        let expr_str = "(add (mul 3 x) (tneg Field y))";
+        let expr_str = "(add (tmul Field Field 3 x) (tneg Field y))";
         let expr: RecExpr<ArkLang> = expr_str.parse().unwrap();
         let displayed = expr.to_string();
         let reparsed: RecExpr<ArkLang> = displayed.parse().unwrap();
@@ -776,13 +776,13 @@ fn main() {
     {
         use egg::{EGraph, Runner, Rewrite, rewrite};
 
-        let expr: RecExpr<ArkLang> = "(add (mul 3 x) (mul 4 x))".parse().unwrap();
+        let expr: RecExpr<ArkLang> = "(add (tmul Field Field 3 x) (tmul Field Field 4 x))".parse().unwrap();
         let mut egraph: EGraph<ArkLang, ()> = EGraph::default();
         let _root = egraph.add_expr(&expr);
 
         let rules: Vec<Rewrite<ArkLang, ()>> = vec![
             rewrite!("add-comm"; "(add ?a ?b)" => "(add ?b ?a)"),
-            rewrite!("mul-comm"; "(mul ?a ?b)" => "(mul ?b ?a)"),
+            rewrite!("tmul-comm"; "(tmul ?T ?V ?a ?b)" => "(tmul ?V ?T ?b ?a)"),
         ];
 
         let runner = Runner::default()
@@ -867,7 +867,7 @@ fn main() {
 
     {
         // Univariate: 3x² + 5x + 7 at x=2 = 29
-        let v = eval_str("(eval (poly (ids x) (mul 3 (tpow Field x 2)) (mul 5 x) 7) 2)", &empty_env()).unwrap();
+        let v = eval_str("(eval (poly (ids x) (tmul Field Field 3 (tpow Field x 2)) (tmul Field Field 5 x) 7) 2)", &empty_env()).unwrap();
         let passed = v.as_field().unwrap() == Fr::from(29u64);
         println!("  poly UV basic: {}", if passed { "PASS" } else { "FAIL" });
         results.push(TestResult { category: "symbolic_poly".into(), test_name: "poly_uv_basic".into(), passed, details: "3x²+5x+7 at x=2 = 29".into(), time_us: 0.0 });
@@ -876,7 +876,7 @@ fn main() {
     {
         // Cross-check: symbolic matches poly:suv
         let env = empty_env();
-        let sym = eval_str("(eval (poly (ids x) (mul 3 (tpow Field x 2)) (mul 5 x) 7) 10)", &env).unwrap().as_field().unwrap();
+        let sym = eval_str("(eval (poly (ids x) (tmul Field Field 3 (tpow Field x 2)) (tmul Field Field 5 x) 7) 10)", &env).unwrap().as_field().unwrap();
         let suv = eval_str("(eval (poly:suv 0 7 1 5 2 3) 10)", &env).unwrap().as_field().unwrap();
         let passed = sym == suv;
         println!("  poly UV matches poly:suv: {}", if passed { "PASS" } else { "FAIL" });
@@ -893,7 +893,7 @@ fn main() {
 
     {
         // Cross term: 2xy at (3, 5) = 30
-        let v = eval_str("(eval (poly (ids x y) (mul 2 (mul x y))) (mkarray 3 5))", &empty_env()).unwrap();
+        let v = eval_str("(eval (poly (ids x y) (tmul Field Field 2 (tmul Field Field x y))) (mkarray 3 5))", &empty_env()).unwrap();
         let passed = v.as_field().unwrap() == Fr::from(30u64);
         println!("  poly MV cross term: {}", if passed { "PASS" } else { "FAIL" });
         results.push(TestResult { category: "symbolic_poly".into(), test_name: "poly_mv_cross".into(), passed, details: "2xy at (3,5) = 30".into(), time_us: 0.0 });

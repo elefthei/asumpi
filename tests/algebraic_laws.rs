@@ -118,16 +118,16 @@ proptest! {
         prop_assert_eq!(lhs, rhs);
     }
 
-    // Rule: (eval (scale c p) x) => (mul c (eval p x))
+    // Rule: (eval (scale c p) x) => (tmul Field Field c (eval p x))
     #[test]
     fn rule_eval_scale(c in any::<u64>(), c0 in any::<u64>(), c1 in any::<u64>(), x in any::<u64>()) {
         let env = env_with_fields(&[("c", fr(c)), ("c0", fr(c0)), ("c1", fr(c1)), ("x", fr(x))]);
         let lhs = eval_str("(eval (tscale DensePoly c (poly:duv c0 c1)) x)", &env).as_field().unwrap();
-        let rhs = eval_str("(mul c (eval (poly:duv c0 c1) x))", &env).as_field().unwrap();
+        let rhs = eval_str("(tmul Field Field c (eval (poly:duv c0 c1) x))", &env).as_field().unwrap();
         prop_assert_eq!(lhs, rhs);
     }
 
-    // Rule: (eval (mul p q) x) => (mul (eval p x) (eval q x))
+    // Rule: (eval (mul p q) x) => (tmul Field Field (eval p x) (eval q x))
     #[test]
     fn rule_eval_mul(
         a0 in any::<u64>(), a1 in any::<u64>(),
@@ -139,8 +139,8 @@ proptest! {
             ("b0", fr(b0)), ("b1", fr(b1)),
             ("x", fr(x)),
         ]);
-        let lhs = eval_str("(eval (mul (poly:duv a0 a1) (poly:duv b0 b1)) x)", &env).as_field().unwrap();
-        let rhs = eval_str("(mul (eval (poly:duv a0 a1) x) (eval (poly:duv b0 b1) x))", &env).as_field().unwrap();
+        let lhs = eval_str("(eval (tmul DensePoly DensePoly (poly:duv a0 a1) (poly:duv b0 b1)) x)", &env).as_field().unwrap();
+        let rhs = eval_str("(tmul Field Field (eval (poly:duv a0 a1) x) (eval (poly:duv b0 b1) x))", &env).as_field().unwrap();
         prop_assert_eq!(lhs, rhs);
     }
 }
@@ -208,12 +208,12 @@ proptest! {
         prop_assert_eq!(lhs, rhs);
     }
 
-    // Rule: (Π i 0 2 f) => (mul (let i 0 f) (let i 1 f))
+    // Rule: (Π i 0 2 f) => (tmul Field Field (let i 0 f) (let i 1 f))
     #[test]
     fn rule_pi_unroll_2(a in any::<u64>(), b in any::<u64>()) {
         let env = env_with_fields(&[("a", fr(a)), ("b", fr(b))]);
         let lhs = eval_str("(Π i 0 2 (tselect Field (mkarray a b) i))", &env).as_field().unwrap();
-        let rhs = eval_str("(mul (let i 0 (tselect Field (mkarray a b) i)) (let i 1 (tselect Field (mkarray a b) i)))", &env).as_field().unwrap();
+        let rhs = eval_str("(tmul Field Field (let i 0 (tselect Field (mkarray a b) i)) (let i 1 (tselect Field (mkarray a b) i)))", &env).as_field().unwrap();
         prop_assert_eq!(lhs, rhs);
     }
 }
@@ -245,11 +245,11 @@ proptest! {
     fn rule_sigma_factor_mul(c in any::<u64>(), a in any::<u64>(), b in any::<u64>()) {
         let env = env_with_fields(&[("c", fr(c)), ("a", fr(a)), ("b", fr(b))]);
         let lhs = eval_str(
-            "(Σ i 0 2 (mul c (tselect Field (mkarray a b) i)))",
+            "(Σ i 0 2 (tmul Field Field c (tselect Field (mkarray a b) i)))",
             &env,
         ).as_field().unwrap();
         let rhs = eval_str(
-            "(mul c (Σ i 0 2 (tselect Field (mkarray a b) i)))",
+            "(tmul Field Field c (Σ i 0 2 (tselect Field (mkarray a b) i)))",
             &env,
         ).as_field().unwrap();
         prop_assert_eq!(lhs, rhs);
@@ -340,7 +340,7 @@ proptest! {
         let env = env_with_fields(&[("a", fr(a)), ("b", fr(b)), ("c", fr(c))]);
         // Expression that multiple rules can transform:
         // scale(c, add(a, b)) can be distributed, reordered, etc.
-        let expr = "(add (tscale Field c (add a b)) (tneg Field (mul a b)))";
+        let expr = "(add (tscale Field c (add a b)) (tneg Field (tmul Field Field a b)))";
         let original = eval_str(expr, &env);
         let optimized = optimize_and_eval(expr, &env);
         prop_assert_eq!(original, optimized);
@@ -401,7 +401,7 @@ fn guard_necessity_sigma_factor_scale() {
     // RHS: if i=1 in env, scale(1, 60) = 60. Still wrong!
     let env: Env = HashMap::new();
     let lhs = eval_str(
-        "(Σ i 0 3 (mul i (tselect Int (mkarray 10 20 30) i)))",
+        "(Σ i 0 3 (tmul Field Field i (tselect Int (mkarray 10 20 30) i)))",
         &env,
     ).as_field().unwrap();
     assert_eq!(lhs, fr(80)); // 0*10 + 1*20 + 2*30
@@ -412,7 +412,7 @@ fn guard_necessity_sigma_factor_scale() {
     let mut env_i0: Env = HashMap::new();
     env_i0.insert("i".into(), Value::Int(0));
     let rhs_i0 = eval_str(
-        "(mul i (Σ i 0 3 (tselect Int (mkarray 10 20 30) i)))",
+        "(tmul Field Field i (Σ i 0 3 (tselect Int (mkarray 10 20 30) i)))",
         &env_i0,
     ).as_field().unwrap();
     // rhs_i0 = 0 * (10+20+30) = 0 ≠ 80
@@ -424,7 +424,7 @@ fn guard_necessity_sigma_factor_mul() {
     // Σ i=0..2 mul(i, a_i) ≠ mul(i, Σ a_i) for any fixed i
     let env: Env = HashMap::new();
     let lhs = eval_str(
-        "(Σ i 0 2 (mul i (tselect Int (mkarray 10 20) i)))",
+        "(Σ i 0 2 (tmul Field Field i (tselect Int (mkarray 10 20) i)))",
         &env,
     ).as_field().unwrap();
     assert_eq!(lhs, fr(20)); // 0*10 + 1*20
@@ -432,7 +432,7 @@ fn guard_necessity_sigma_factor_mul() {
     let mut env_i1: Env = HashMap::new();
     env_i1.insert("i".into(), Value::Int(1));
     let rhs_i1 = eval_str(
-        "(mul i (Σ i 0 2 (tselect Int (mkarray 10 20) i)))",
+        "(tmul Field Field i (Σ i 0 2 (tselect Int (mkarray 10 20) i)))",
         &env_i1,
     ).as_field().unwrap();
     // rhs = 1 * (10+20) = 30 ≠ 20
@@ -451,7 +451,7 @@ proptest! {
     fn scale_associativity(a in any::<u64>(), b in any::<u64>(), p in any::<u64>()) {
         let env = env_with_fields(&[("a", fr(a)), ("b", fr(b)), ("p", fr(p))]);
         let lhs = eval_str("(tscale Field a (tscale Field b p))", &env).as_field().unwrap();
-        let rhs = eval_str("(tscale Field (mul a b) p)", &env).as_field().unwrap();
+        let rhs = eval_str("(tscale Field (tmul Field Field a b) p)", &env).as_field().unwrap();
         prop_assert_eq!(lhs, rhs);
     }
 
@@ -459,7 +459,7 @@ proptest! {
     #[test]
     fn pow_additive(a_val in 1u64..1000, m in 0i64..5, n in 0i64..5) {
         let env = env_with_fields(&[("a", fr(a_val))]);
-        let lhs_expr = format!("(mul (tpow Field a {}) (tpow Field a {}))", m, n);
+        let lhs_expr = format!("(tmul Field Field (tpow Field a {}) (tpow Field a {}))", m, n);
         let rhs_expr = format!("(tpow Field a {})", m + n);
         let lhs = eval_str(&lhs_expr, &env).as_field().unwrap();
         let rhs = eval_str(&rhs_expr, &env).as_field().unwrap();
@@ -470,7 +470,7 @@ proptest! {
     #[test]
     fn sigma_empty_range(n in 0i64..10) {
         let env: Env = HashMap::new();
-        let expr = format!("(Σ i {} {} (mul i i))", n, n);
+        let expr = format!("(Σ i {} {} (tmul Field Field i i))", n, n);
         let r = eval_str(&expr, &env);
         prop_assert_eq!(r, Value::Int(0));
     }
@@ -479,7 +479,7 @@ proptest! {
     #[test]
     fn pi_empty_range(n in 0i64..10) {
         let env: Env = HashMap::new();
-        let expr = format!("(Π i {} {} (mul i i))", n, n);
+        let expr = format!("(Π i {} {} (tmul Field Field i i))", n, n);
         let r = eval_str(&expr, &env);
         prop_assert_eq!(r, Value::Int(1));
     }
