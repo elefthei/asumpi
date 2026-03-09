@@ -65,6 +65,7 @@ define_language! {
         "add"     = Add([Id; 4]),
         "neg"     = Neg([Id; 2]),
         "mul"     = Mul([Id; 4]),
+        "dot"     = Dot([Id; 4]),
         "inv"     = Inv([Id; 2]),
         "pow"     = Pow([Id; 3]),
         "eval"    = Eval([Id; 3]),

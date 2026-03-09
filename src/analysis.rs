@@ -160,7 +160,8 @@ impl Analysis<ArkLang> for TypeAnalysis {
             }
 
             // ── Typed Add ──
-            ArkLang::Add([_ta, _tb, a, b]) | ArkLang::Mul([_ta, _tb, a, b]) => {
+            ArkLang::Add([_ta, _tb, a, b]) | ArkLang::Mul([_ta, _tb, a, b])
+                | ArkLang::Dot([_ta, _tb, a, b]) => {
                 free_vars.extend(&cd(a).free_vars);
                 free_vars.extend(&cd(b).free_vars);
                 types.extend(cd(a).types.iter().cloned());

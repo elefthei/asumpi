@@ -237,6 +237,17 @@ fn eval_id(expr: &RecExpr<ArkLang>, id: Id, env: &Env) -> Result<Value, EvalErro
             typed_mul(ty_a, ty_b, va, vb)
         }
 
+        // ── Dot Product ──
+        ArkLang::Dot([ta, tb, a, b]) => {
+            let ty_a = resolve_type_tag(expr, *ta)?;
+            let ty_b = resolve_type_tag(expr, *tb)?;
+            let va = eval_id(expr, *a, env)?;
+            let vb = eval_id(expr, *b, env)?;
+            validate_type(&va, &ty_a)?;
+            validate_type(&vb, &ty_b)?;
+            typed_dot(ty_a, ty_b, va, vb)
+        }
+
         // ── Typed Inv ──
         ArkLang::Inv([t, a]) => {
             let ty = resolve_type_tag(expr, *t)?;
@@ -914,6 +925,51 @@ fn typed_mul(ty_a: ArkType, ty_b: ArkType, va: Value, vb: Value) -> Result<Value
 
         _ => Err(EvalError::TypeError(format!(
             "mul: incompatible types {:?} and {:?}", ty_a, ty_b
+        ))),
+    }
+}
+
+/// Dot product: inner product of two arrays, accumulating via typed_mul + typed_add.
+/// Works for any (ArrayOf(A), ArrayOf(B)) where typed_mul(A, B) is defined.
+fn typed_dot(ty_a: ArkType, ty_b: ArkType, va: Value, vb: Value) -> Result<Value, EvalError> {
+    let (inner_a, inner_b) = match (&ty_a, &ty_b) {
+        (ArkType::ArrayOf(a), ArkType::ArrayOf(b)) => (a.as_ref().clone(), b.as_ref().clone()),
+        _ => return Err(EvalError::TypeError(format!(
+            "dot: expected array types, got {:?} and {:?}", ty_a, ty_b
+        ))),
+    };
+    let arr_a = va.as_array()?;
+    let arr_b = vb.as_array()?;
+    if arr_a.len() != arr_b.len() {
+        return Err(EvalError::TypeError(format!(
+            "dot: array length mismatch: {} vs {}", arr_a.len(), arr_b.len()
+        )));
+    }
+    if arr_a.is_empty() {
+        return Err(EvalError::TypeError("dot: empty arrays".into()));
+    }
+    let mut iter = arr_a.into_iter().zip(arr_b.into_iter());
+    let (a0, b0) = iter.next().unwrap();
+    let result_type = result_type_of_mul(&inner_a, &inner_b)?;
+    let mut acc = typed_mul(inner_a.clone(), inner_b.clone(), a0, b0)?;
+    for (ai, bi) in iter {
+        let prod = typed_mul(inner_a.clone(), inner_b.clone(), ai, bi)?;
+        acc = typed_add(result_type.clone(), result_type.clone(), acc, prod)?;
+    }
+    Ok(acc)
+}
+
+/// Determine the result type of mul(A, B).
+fn result_type_of_mul(ty_a: &ArkType, ty_b: &ArkType) -> Result<ArkType, EvalError> {
+    use ArkType::*;
+    match (ty_a, ty_b) {
+        (Field, Field) => Ok(Field),
+        (Int, Int) => Ok(Int),
+        (DensePoly, DensePoly) => Ok(DensePoly),
+        (Field, t) | (Int, t) => Ok(t.clone()),
+        (t, Field) | (t, Int) => Ok(t.clone()),
+        _ => Err(EvalError::TypeError(format!(
+            "dot: cannot determine result type for mul({:?}, {:?})", ty_a, ty_b
         ))),
     }
 }
@@ -2556,5 +2612,113 @@ mod tests {
         let env = empty_env();
         // Passing a DensePoly when tag says Field
         assert!(eval_str("(eq Field (coerce (arrayof Field) DensePoly (array 1 2)) (coerce Int Field 3))", &env).is_err());
+    }
+
+    // ═══════════════════════════════════════════════
+    // Dot product tests
+    // ═══════════════════════════════════════════════
+
+    #[test]
+    fn test_dot_field_field() {
+        let env = empty_env();
+        // [1,2,3] · [4,5,6] = 1*4 + 2*5 + 3*6 = 32
+        let v = eval_str(
+            "(dot (arrayof Field) (arrayof Field) (array 1 2 3) (array 4 5 6))",
+            &env
+        ).unwrap();
+        assert_eq!(v, Value::Field(fr(32)));
+    }
+
+    #[test]
+    fn test_dot_curve_field() {
+        let mut rng = ark_std::rand::rngs::StdRng::seed_from_u64(42);
+        let p0 = G1Projective::rand(&mut rng);
+        let p1 = G1Projective::rand(&mut rng);
+        let mut env = empty_env();
+        env.insert("P0".into(), Value::Curve(p0));
+        env.insert("P1".into(), Value::Curve(p1));
+        // [P0, P1] · [3, 5] = 3*P0 + 5*P1
+        let v = eval_str(
+            "(dot (arrayof Curve) (arrayof Field) (array P0 P1) (array 3 5))",
+            &env
+        ).unwrap();
+        let expected = p0 * Fr::from(3u64) + p1 * Fr::from(5u64);
+        assert_eq!(v.as_curve().unwrap(), expected);
+    }
+
+    #[test]
+    fn test_dot_dense_poly_field() {
+        let env = empty_env();
+        // [p1, p2] · [2, 3] where p1=(1+x), p2=(1+x²)
+        // = 2*(1+x) + 3*(1+x²) = (2+2x) + (3+3x²) = 5 + 2x + 3x²
+        // eval at x=1: 5+2+3 = 10
+        let v = eval_str(
+            "(eval DensePoly (dot (arrayof DensePoly) (arrayof Field) (array (coerce (arrayof Field) DensePoly (array 1 1)) (coerce (arrayof Field) DensePoly (array 1 0 1))) (array 2 3)) 1)",
+            &env
+        ).unwrap();
+        assert_eq!(v, Value::Field(fr(10)));
+    }
+
+    #[test]
+    fn test_dot_empty_arrays() {
+        let env = empty_env();
+        assert!(eval_str(
+            "(dot (arrayof Field) (arrayof Field) (array) (array))",
+            &env
+        ).is_err());
+    }
+
+    #[test]
+    fn test_dot_length_mismatch() {
+        let env = empty_env();
+        assert!(eval_str(
+            "(dot (arrayof Field) (arrayof Field) (array 1 2) (array 3))",
+            &env
+        ).is_err());
+    }
+
+    // ═══════════════════════════════════════════════
+    // Hadamard (element-wise) product tests
+    // ═══════════════════════════════════════════════
+
+    #[test]
+    fn test_hadamard_field_field() {
+        let env = empty_env();
+        // [2,3,4] ⊙ [5,6,7] = [10, 18, 28]
+        let v = eval_str(
+            "(mul (arrayof Field) (arrayof Field) (array 2 3 4) (array 5 6 7))",
+            &env
+        ).unwrap();
+        let arr = v.as_array().unwrap();
+        assert_eq!(arr[0], Value::Field(fr(10)));
+        assert_eq!(arr[1], Value::Field(fr(18)));
+        assert_eq!(arr[2], Value::Field(fr(28)));
+    }
+
+    #[test]
+    fn test_hadamard_field_curve() {
+        let mut rng = ark_std::rand::rngs::StdRng::seed_from_u64(42);
+        let p0 = G1Projective::rand(&mut rng);
+        let p1 = G1Projective::rand(&mut rng);
+        let mut env = empty_env();
+        env.insert("P0".into(), Value::Curve(p0));
+        env.insert("P1".into(), Value::Curve(p1));
+        // [3, 5] ⊙ [P0, P1] = [3*P0, 5*P1]
+        let v = eval_str(
+            "(mul (arrayof Field) (arrayof Curve) (array 3 5) (array P0 P1))",
+            &env
+        ).unwrap();
+        let arr = v.as_array().unwrap();
+        assert_eq!(arr[0].as_curve().unwrap(), p0 * Fr::from(3u64));
+        assert_eq!(arr[1].as_curve().unwrap(), p1 * Fr::from(5u64));
+    }
+
+    #[test]
+    fn test_hadamard_length_mismatch() {
+        let env = empty_env();
+        assert!(eval_str(
+            "(mul (arrayof Field) (arrayof Field) (array 1 2 3) (array 4 5))",
+            &env
+        ).is_err());
     }
 }
