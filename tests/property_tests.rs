@@ -103,7 +103,7 @@ proptest! {
         let a = fr_from_u64(a_val);
         let env = env_with_fields(&[("a", a)]);
 
-        let r = eval_str("(mul a (inv a))", &env).as_field().unwrap();
+        let r = eval_str("(mul a (tinv Field a))", &env).as_field().unwrap();
         prop_assert_eq!(r, Fr::from(1u64));
     }
 

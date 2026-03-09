@@ -86,7 +86,7 @@ fn main() {
     // Inverse
     {
         let start = Instant::now();
-        let r = eval_str("(mul 3 (inv 3))", &empty_env());
+        let r = eval_str("(mul 3 (tinv Field (coerce Int Field 3)))", &empty_env());
         let elapsed = start.elapsed().as_micros() as f64;
         let passed = matches!(&r, Ok(v) if *v == Value::Int(1));
         println!("  inv*self=1: {}", if passed { "PASS" } else { "FAIL" });
@@ -101,7 +101,7 @@ fn main() {
 
     {
         let start = Instant::now();
-        let r = eval_str("(mul 42 (inv 7))", &empty_env());
+        let r = eval_str("(mul 42 (tinv Field (coerce Int Field 7)))", &empty_env());
         let elapsed = start.elapsed().as_micros() as f64;
         let passed = matches!(&r, Ok(v) if *v == Value::Int(6));
         println!("  div: {}", if passed { "PASS" } else { "FAIL" });
@@ -116,7 +116,7 @@ fn main() {
 
     {
         let start = Instant::now();
-        let r = eval_str("(inv 0)", &empty_env());
+        let r = eval_str("(tinv Field (coerce Int Field 0))", &empty_env());
         let elapsed = start.elapsed().as_micros() as f64;
         let passed = matches!(&r, Err(EvalError::DivisionByZero));
         println!("  div-by-zero: {}", if passed { "PASS" } else { "FAIL" });
@@ -224,7 +224,7 @@ fn main() {
         });
 
         let start = Instant::now();
-        let r = eval_str("(mul a (inv a))", &env).unwrap().as_field().unwrap();
+        let r = eval_str("(mul a (tinv Field a))", &env).unwrap().as_field().unwrap();
         let elapsed = start.elapsed().as_micros() as f64;
         let passed = r == Fr::from(1u64);
         println!("  mul inverse: {}", if passed { "PASS" } else { "FAIL" });
@@ -515,33 +515,33 @@ fn main() {
     }
 
     {
-        let v = eval_str("(eval (fst (pdiv (poly:duv 1 3 2) (poly:duv 1 1))) 5)", &empty_env()).unwrap();
+        let v = eval_str("(eval (fst (tpdiv DensePoly (poly:duv 1 3 2) (poly:duv 1 1))) 5)", &empty_env()).unwrap();
         let passed = v == Value::Int(11);
         println!("  pdiv quotient: {}", if passed { "PASS" } else { "FAIL" });
         results.push(TestResult {
             category: "polynomial".into(),
             test_name: "pdiv_quotient".into(),
             passed,
-            details: "fst(pdiv (2x²+3x+1) (x+1)) at x=5 = 11".into(),
+            details: "fst(tpdiv DensePoly (2x²+3x+1) (x+1)) at x=5 = 11".into(),
             time_us: 0.0,
         });
     }
 
     {
-        let v = eval_str("(eval (snd (pdiv (poly:duv 1 0 1) (poly:duv 1 1))) 999)", &empty_env()).unwrap();
+        let v = eval_str("(eval (snd (tpdiv DensePoly (poly:duv 1 0 1) (poly:duv 1 1))) 999)", &empty_env()).unwrap();
         let passed = v == Value::Int(2);
         println!("  pdiv remainder: {}", if passed { "PASS" } else { "FAIL" });
         results.push(TestResult {
             category: "polynomial".into(),
             test_name: "pdiv_remainder".into(),
             passed,
-            details: "snd(pdiv (x²+1) (x+1)) = 2".into(),
+            details: "snd(tpdiv DensePoly (x²+1) (x+1)) = 2".into(),
             time_us: 0.0,
         });
     }
 
     {
-        let v = eval_str("(deg (poly:duv 1 2 3))", &empty_env()).unwrap();
+        let v = eval_str("(tdeg DensePoly (poly:duv 1 2 3))", &empty_env()).unwrap();
         let passed = v == Value::Int(2);
         println!("  pdeg: {}", if passed { "PASS" } else { "FAIL" });
         results.push(TestResult {
@@ -585,7 +585,7 @@ fn main() {
     }
 
     {
-        let v = eval_str("(nvars (poly:dmle 3 (mkarray 0 1 2 3 4 5 6 7)))", &empty_env()).unwrap();
+        let v = eval_str("(tnvars DenseMLE (poly:dmle 3 (mkarray 0 1 2 3 4 5 6 7)))", &empty_env()).unwrap();
         let passed = v == Value::Int(3);
         println!("  mle-nvars: {}", if passed { "PASS" } else { "FAIL" });
         results.push(TestResult {
@@ -652,7 +652,7 @@ fn main() {
 
     {
         let v = eval_str(
-            "(deg (poly:mv 2 (mkarray 1) (mkarray (mkarray 0 2 1 1))))",
+            "(tdeg MVPoly (poly:mv 2 (mkarray 1) (mkarray (mkarray 0 2 1 1))))",
             &empty_env(),
         ).unwrap();
         let passed = v == Value::Int(3);
@@ -719,14 +719,14 @@ fn main() {
     }
 
     {
-        let v = eval_str("(if (eq 1 1) 42 0)", &empty_env()).unwrap();
+        let v = eval_str("(if (teq Int 1 1) 42 0)", &empty_env()).unwrap();
         let passed = v == Value::Int(42);
         println!("  if-true: {}", if passed { "PASS" } else { "FAIL" });
         results.push(TestResult { category: "control_flow".into(), test_name: "if_true".into(), passed, details: "if 1==1 then 42 else 0 = 42".into(), time_us: 0.0 });
     }
 
     {
-        let v = eval_str("(if (eq 1 2) 42 0)", &empty_env()).unwrap();
+        let v = eval_str("(if (teq Int 1 2) 42 0)", &empty_env()).unwrap();
         let passed = v == Value::Int(0);
         println!("  if-false: {}", if passed { "PASS" } else { "FAIL" });
         results.push(TestResult { category: "control_flow".into(), test_name: "if_false".into(), passed, details: "if 1==2 then 42 else 0 = 0".into(), time_us: 0.0 });
@@ -738,21 +738,21 @@ fn main() {
     println!("\n--- Conversion Operations ---");
 
     {
-        let v = eval_str("(eval (densify (poly:suv 0 5 2 3)) 2)", &empty_env()).unwrap();
+        let v = eval_str("(eval (coerce SparsePoly DensePoly (poly:suv 0 5 2 3)) 2)", &empty_env()).unwrap();
         let passed = v.as_field().unwrap() == Fr::from(17u64);
         println!("  densify sparse UV: {}", if passed { "PASS" } else { "FAIL" });
         results.push(TestResult { category: "conversions".into(), test_name: "densify_suv".into(), passed, details: "densify(5+3x²) at x=2 = 17".into(), time_us: 0.0 });
     }
 
     {
-        let v = eval_str("(eval (sparsify (poly:duv 5 0 3)) 2)", &empty_env()).unwrap();
+        let v = eval_str("(eval (coerce DensePoly SparsePoly (poly:duv 5 0 3)) 2)", &empty_env()).unwrap();
         let passed = v.as_field().unwrap() == Fr::from(17u64);
         println!("  sparsify dense UV: {}", if passed { "PASS" } else { "FAIL" });
         results.push(TestResult { category: "conversions".into(), test_name: "sparsify_duv".into(), passed, details: "sparsify(5+3x²) at x=2 = 17".into(), time_us: 0.0 });
     }
 
     {
-        let v = eval_str("(eval (as-uv (poly:dmle 1 (mkarray 3 7))) 2)", &empty_env()).unwrap();
+        let v = eval_str("(eval (coerce DenseMLE DensePoly (poly:dmle 1 (mkarray 3 7))) 2)", &empty_env()).unwrap();
         let passed = v.as_field().unwrap() == Fr::from(11u64);
         println!("  as-uv from MLE: {}", if passed { "PASS" } else { "FAIL" });
         results.push(TestResult { category: "conversions".into(), test_name: "as_uv_mle".into(), passed, details: "1-var MLE[3,7] → UV, eval at 2 = 11".into(), time_us: 0.0 });
@@ -922,9 +922,9 @@ fn main() {
         // pdiv division identity: a = q*b + r
         let env = empty_env();
         let a = eval_str("(eval (poly:duv 1 0 1) 5)", &env).unwrap().as_field().unwrap();
-        let q = eval_str("(eval (fst (pdiv (poly:duv 1 0 1) (poly:duv 1 1))) 5)", &env).unwrap().as_field().unwrap();
+        let q = eval_str("(eval (fst (tpdiv DensePoly (poly:duv 1 0 1) (poly:duv 1 1))) 5)", &env).unwrap().as_field().unwrap();
         let b = eval_str("(eval (poly:duv 1 1) 5)", &env).unwrap().as_field().unwrap();
-        let r = eval_str("(eval (snd (pdiv (poly:duv 1 0 1) (poly:duv 1 1))) 5)", &env).unwrap().as_field().unwrap();
+        let r = eval_str("(eval (snd (tpdiv DensePoly (poly:duv 1 0 1) (poly:duv 1 1))) 5)", &env).unwrap().as_field().unwrap();
         let passed = a == q * b + r;
         println!("  pdiv identity a=qb+r: {}", if passed { "PASS" } else { "FAIL" });
         results.push(TestResult { category: "tuple".into(), test_name: "pdiv_identity".into(), passed, details: "a = q*b + r for (x²+1)/(x+1)".into(), time_us: 0.0 });
@@ -936,7 +936,7 @@ fn main() {
     println!("\n--- Array Addition ---");
 
     {
-        let v = eval_str("(aadd (mkarray 1 2 3) (mkarray 4 5 6))", &empty_env()).unwrap().as_array().unwrap();
+        let v = eval_str("(taadd Field (mkarray 1 2 3) (mkarray 4 5 6))", &empty_env()).unwrap().as_array().unwrap();
         let passed = v.len() == 3 && v[0].as_field().unwrap() == Fr::from(5u64)
             && v[1].as_field().unwrap() == Fr::from(7u64) && v[2].as_field().unwrap() == Fr::from(9u64);
         println!("  aadd basic: {}", if passed { "PASS" } else { "FAIL" });
@@ -944,7 +944,7 @@ fn main() {
     }
 
     {
-        let v = eval_str("(aadd (mkarray 1 2) (mkarray 10 20 30))", &empty_env()).unwrap().as_array().unwrap();
+        let v = eval_str("(taadd Field (mkarray 1 2) (mkarray 10 20 30))", &empty_env()).unwrap().as_array().unwrap();
         let passed = v.len() == 3 && v[2].as_field().unwrap() == Fr::from(30u64);
         println!("  aadd diff lengths: {}", if passed { "PASS" } else { "FAIL" });
         results.push(TestResult { category: "array".into(), test_name: "aadd_diff_len".into(), passed, details: "[1,2]+[10,20,30]=[11,22,30]".into(), time_us: 0.0 });

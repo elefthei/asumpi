@@ -1058,7 +1058,7 @@ fn typed_add(ty_a: ArkType, ty_b: ArkType, va: Value, vb: Value) -> Result<Value
     use ArkType::*;
     match (ty_a, ty_b) {
         (Field, Field) => Ok(Value::Field(va.as_field()? + vb.as_field()?)),
-        (Int, Int) => Ok(Value::Field(int_to_fr(va.as_int()?) + int_to_fr(vb.as_int()?))),
+        (Int, Int) => Ok(Value::Int(va.as_int()? + vb.as_int()?)),
         (Curve, Curve) => Ok(Value::Curve(va.as_curve()? + vb.as_curve()?)),
         (DensePoly, DensePoly) => {
             let pa = va.as_polynomial()?;
@@ -1096,7 +1096,7 @@ fn typed_neg(ty: ArkType, va: Value) -> Result<Value, EvalError> {
     use ArkType::*;
     match ty {
         Field => Ok(Value::Field(-va.as_field()?)),
-        Int => Ok(Value::Field(-int_to_fr(va.as_int()?))),
+        Int => Ok(Value::Int(-va.as_int()?)),
         Curve => Ok(Value::Curve(-va.as_curve()?)),
         DensePoly => Ok(Value::Polynomial(-va.as_polynomial()?)),
         SparsePoly => {
@@ -1129,7 +1129,7 @@ fn typed_mul(ty_a: ArkType, ty_b: ArkType, va: Value, vb: Value) -> Result<Value
     use ArkType::*;
     match (ty_a, ty_b) {
         (Field, Field) => Ok(Value::Field(va.as_field()? * vb.as_field()?)),
-        (Int, Int) => Ok(Value::Field(int_to_fr(va.as_int()?) * int_to_fr(vb.as_int()?))),
+        (Int, Int) => Ok(Value::Int(va.as_int()? * vb.as_int()?)),
         (DensePoly, DensePoly) => {
             let pa = va.as_polynomial()?;
             let pb = vb.as_polynomial()?;
@@ -1639,20 +1639,20 @@ mod tests {
 
     #[test]
     fn test_field_inv() {
-        let v = eval_str("(mul 3 (inv 3))", &empty_env()).unwrap();
+        let v = eval_str("(mul 3 (tinv Field (coerce Int Field 3)))", &empty_env()).unwrap();
         assert_eq!(v, Value::Int(1));
     }
 
     #[test]
     fn test_field_div() {
         // 42 / 7 = 6: (mul 42 (inv 7))
-        let v = eval_str("(mul 42 (inv 7))", &empty_env()).unwrap();
+        let v = eval_str("(mul 42 (tinv Field (coerce Int Field 7)))", &empty_env()).unwrap();
         assert_eq!(v, Value::Int(6));
     }
 
     #[test]
     fn test_field_inv_zero() {
-        let r = eval_str("(inv 0)", &empty_env());
+        let r = eval_str("(tinv Field (coerce Int Field 0))", &empty_env());
         assert!(matches!(r, Err(EvalError::DivisionByZero)));
     }
 
@@ -1709,13 +1709,13 @@ mod tests {
 
     #[test]
     fn test_if_true() {
-        let v = eval_str("(if (eq 1 1) 42 0)", &empty_env()).unwrap();
+        let v = eval_str("(if (teq Int 1 1) 42 0)", &empty_env()).unwrap();
         assert_eq!(v, Value::Int(42));
     }
 
     #[test]
     fn test_if_false() {
-        let v = eval_str("(if (eq 1 2) 42 0)", &empty_env()).unwrap();
+        let v = eval_str("(if (teq Int 1 2) 42 0)", &empty_env()).unwrap();
         assert_eq!(v, Value::Int(0));
     }
 
@@ -1836,19 +1836,19 @@ mod tests {
     #[test]
     fn test_poly_div() {
         // pdiv now returns a Pair(quotient, remainder)
-        let v = eval_str("(eval (fst (pdiv (poly:duv 1 3 2) (poly:duv 1 1))) 5)", &empty_env()).unwrap();
+        let v = eval_str("(eval (fst (tpdiv DensePoly (poly:duv 1 3 2) (poly:duv 1 1))) 5)", &empty_env()).unwrap();
         assert_eq!(v, Value::Int(11));
     }
 
     #[test]
     fn test_poly_mod() {
-        let v = eval_str("(eval (snd (pdiv (poly:duv 1 0 1) (poly:duv 1 1))) 999)", &empty_env()).unwrap();
+        let v = eval_str("(eval (snd (tpdiv DensePoly (poly:duv 1 0 1) (poly:duv 1 1))) 999)", &empty_env()).unwrap();
         assert_eq!(v, Value::Int(2));
     }
 
     #[test]
     fn test_poly_deg() {
-        let v = eval_str("(deg (poly:duv 1 2 3))", &empty_env()).unwrap();
+        let v = eval_str("(tdeg DensePoly (poly:duv 1 2 3))", &empty_env()).unwrap();
         assert_eq!(v, Value::Int(2));
     }
 
@@ -1871,7 +1871,7 @@ mod tests {
 
     #[test]
     fn test_mle_nvars() {
-        let v = eval_str("(nvars (poly:dmle 3 (mkarray 0 1 2 3 4 5 6 7)))", &empty_env()).unwrap();
+        let v = eval_str("(tnvars DenseMLE (poly:dmle 3 (mkarray 0 1 2 3 4 5 6 7)))", &empty_env()).unwrap();
         assert_eq!(v, Value::Int(3));
     }
 
@@ -1907,7 +1907,7 @@ mod tests {
     #[test]
     fn test_mvpoly_degree() {
         let v = eval_str(
-            "(deg (poly:mv 2 (mkarray 1) (mkarray (mkarray 0 2 1 1))))",
+            "(tdeg MVPoly (poly:mv 2 (mkarray 1) (mkarray (mkarray 0 2 1 1))))",
             &empty_env(),
         ).unwrap();
         assert_eq!(v, Value::Int(3));
@@ -2101,14 +2101,14 @@ mod tests {
     #[test]
     fn test_densify_sparse_uv() {
         // Create sparse poly 5 + 3x^2, densify, evaluate
-        let v = eval_str("(eval (densify (poly:suv 0 5 2 3)) 2)", &empty_env()).unwrap();
+        let v = eval_str("(eval (coerce SparsePoly DensePoly (poly:suv 0 5 2 3)) 2)", &empty_env()).unwrap();
         assert_eq!(v.as_field().unwrap(), Fr::from(17u64));
     }
 
     #[test]
     fn test_sparsify_dense_uv() {
         // Create dense poly [5, 0, 3] (5 + 3x^2), sparsify, evaluate
-        let v = eval_str("(eval (sparsify (poly:duv 5 0 3)) 2)", &empty_env()).unwrap();
+        let v = eval_str("(eval (coerce DensePoly SparsePoly (poly:duv 5 0 3)) 2)", &empty_env()).unwrap();
         assert_eq!(v.as_field().unwrap(), Fr::from(17u64));
     }
 
@@ -2116,7 +2116,7 @@ mod tests {
     fn test_as_uv_mle() {
         // 1-var MLE with evals [3, 7]: linear poly f(x) = 3 + 4x
         // Evaluate at x=2: 3 + 8 = 11
-        let v = eval_str("(eval (as-uv (poly:dmle 1 (mkarray 3 7))) 2)", &empty_env()).unwrap();
+        let v = eval_str("(eval (coerce DenseMLE DensePoly (poly:dmle 1 (mkarray 3 7))) 2)", &empty_env()).unwrap();
         assert_eq!(v.as_field().unwrap(), Fr::from(11u64));
     }
 
@@ -2124,9 +2124,9 @@ mod tests {
     fn test_as_mle_uv() {
         // UV poly [3, 4] (3 + 4x) → MLE with 1 var
         // Eval at (0) → 3, eval at (1) → 7
-        let v0 = eval_str("(eval (as-mle (poly:duv 3 4)) (mkarray 0))", &empty_env()).unwrap();
+        let v0 = eval_str("(eval (coerce DensePoly DenseMLE (poly:duv 3 4)) (mkarray 0))", &empty_env()).unwrap();
         assert_eq!(v0.as_field().unwrap(), Fr::from(3u64));
-        let v1 = eval_str("(eval (as-mle (poly:duv 3 4)) (mkarray 1))", &empty_env()).unwrap();
+        let v1 = eval_str("(eval (coerce DensePoly DenseMLE (poly:duv 3 4)) (mkarray 1))", &empty_env()).unwrap();
         assert_eq!(v1.as_field().unwrap(), Fr::from(7u64));
     }
 
@@ -2371,9 +2371,9 @@ mod tests {
     fn test_pdiv_returns_pair() {
         let env = empty_env();
         // (2x² + 3x + 1) / (x + 1) = quotient (2x + 1), remainder 0
-        let q = eval_str("(eval (fst (pdiv (poly:duv 1 3 2) (poly:duv 1 1))) 5)", &env).unwrap();
+        let q = eval_str("(eval (fst (tpdiv DensePoly (poly:duv 1 3 2) (poly:duv 1 1))) 5)", &env).unwrap();
         assert_eq!(q.as_field().unwrap(), Fr::from(11u64));
-        let r = eval_str("(eval (snd (pdiv (poly:duv 1 3 2) (poly:duv 1 1))) 5)", &env).unwrap();
+        let r = eval_str("(eval (snd (tpdiv DensePoly (poly:duv 1 3 2) (poly:duv 1 1))) 5)", &env).unwrap();
         assert_eq!(r.as_field().unwrap(), Fr::from(0u64));
     }
 
@@ -2383,9 +2383,9 @@ mod tests {
         // Verify: q*b + r = a at x = 5
         let env = empty_env();
         let a_val = eval_str("(eval (poly:duv 1 0 1) 5)", &env).unwrap().as_field().unwrap();
-        let q_val = eval_str("(eval (fst (pdiv (poly:duv 1 0 1) (poly:duv 1 1))) 5)", &env).unwrap().as_field().unwrap();
+        let q_val = eval_str("(eval (fst (tpdiv DensePoly (poly:duv 1 0 1) (poly:duv 1 1))) 5)", &env).unwrap().as_field().unwrap();
         let b_val = eval_str("(eval (poly:duv 1 1) 5)", &env).unwrap().as_field().unwrap();
-        let r_val = eval_str("(eval (snd (pdiv (poly:duv 1 0 1) (poly:duv 1 1))) 5)", &env).unwrap().as_field().unwrap();
+        let r_val = eval_str("(eval (snd (tpdiv DensePoly (poly:duv 1 0 1) (poly:duv 1 1))) 5)", &env).unwrap().as_field().unwrap();
         assert_eq!(a_val, q_val * b_val + r_val);
     }
 
@@ -2394,7 +2394,7 @@ mod tests {
     #[test]
     fn test_aadd_basic() {
         let env = empty_env();
-        let v = eval_str("(aadd (mkarray 1 2 3) (mkarray 4 5 6))", &env).unwrap().as_array().unwrap();
+        let v = eval_str("(taadd Field (mkarray 1 2 3) (mkarray 4 5 6))", &env).unwrap().as_array().unwrap();
         assert_eq!(v.len(), 3);
         assert_eq!(v[0].as_field().unwrap(), Fr::from(5u64));
         assert_eq!(v[1].as_field().unwrap(), Fr::from(7u64));
@@ -2404,7 +2404,7 @@ mod tests {
     #[test]
     fn test_aadd_different_lengths() {
         let env = empty_env();
-        let v = eval_str("(aadd (mkarray 1 2) (mkarray 10 20 30))", &env).unwrap().as_array().unwrap();
+        let v = eval_str("(taadd Field (mkarray 1 2) (mkarray 10 20 30))", &env).unwrap().as_array().unwrap();
         assert_eq!(v.len(), 3);
         assert_eq!(v[0].as_field().unwrap(), Fr::from(11u64));
         assert_eq!(v[1].as_field().unwrap(), Fr::from(22u64));
@@ -2414,7 +2414,7 @@ mod tests {
     #[test]
     fn test_aadd_empty() {
         let env = empty_env();
-        let v = eval_str("(aadd (mkarray) (mkarray 1 2))", &env).unwrap().as_array().unwrap();
+        let v = eval_str("(taadd Field (mkarray) (mkarray 1 2))", &env).unwrap().as_array().unwrap();
         assert_eq!(v.len(), 2);
         assert_eq!(v[0].as_field().unwrap(), Fr::from(1u64));
     }
@@ -2660,7 +2660,7 @@ mod tests {
     fn test_tadd_int_int() {
         let env = empty_env();
         let v = eval_str("(tadd Int Int 3 7)", &env).unwrap();
-        assert_eq!(v.as_field().unwrap(), Fr::from(10u64));
+        assert_eq!(v, Value::Int(10));
     }
 
     #[test]
