@@ -276,7 +276,7 @@ fn main() {
         });
 
         let start = Instant::now();
-        let r1 = eval_str("(scale 3 p)", &env).unwrap().as_curve().unwrap();
+        let r1 = eval_str("(tscale Curve 3 p)", &env).unwrap().as_curve().unwrap();
         let r2 = eval_str("(add p (add p p))", &env).unwrap().as_curve().unwrap();
         let elapsed = start.elapsed().as_micros() as f64;
         let passed = r1.into_affine() == r2.into_affine();
@@ -292,8 +292,8 @@ fn main() {
         let s = Fr::rand(&mut rng);
         env.insert("s".into(), Value::Field(s));
         let start = Instant::now();
-        let lhs = eval_str("(scale s (add p q))", &env).unwrap().as_curve().unwrap();
-        let rhs = eval_str("(add (scale s p) (scale s q))", &env).unwrap().as_curve().unwrap();
+        let lhs = eval_str("(tscale Curve s (add p q))", &env).unwrap().as_curve().unwrap();
+        let rhs = eval_str("(add (tscale Curve s p) (tscale Curve s q))", &env).unwrap().as_curve().unwrap();
         let elapsed = start.elapsed().as_micros() as f64;
         let passed = lhs.into_affine() == rhs.into_affine();
         println!("  scalar mul linearity: {}", if passed { "PASS" } else { "FAIL" });
@@ -310,8 +310,8 @@ fn main() {
         env.insert("a".into(), Value::Field(a));
         env.insert("b".into(), Value::Field(b));
         let start = Instant::now();
-        let lhs = eval_str("(scale (add a b) p)", &env).unwrap().as_curve().unwrap();
-        let rhs = eval_str("(add (scale a p) (scale b p))", &env).unwrap().as_curve().unwrap();
+        let lhs = eval_str("(tscale Curve (add a b) p)", &env).unwrap().as_curve().unwrap();
+        let rhs = eval_str("(add (tscale Curve a p) (tscale Curve b p))", &env).unwrap().as_curve().unwrap();
         let elapsed = start.elapsed().as_micros() as f64;
         let passed = lhs.into_affine() == rhs.into_affine();
         println!("  scalar distributivity: {}", if passed { "PASS" } else { "FAIL" });
@@ -373,7 +373,7 @@ fn main() {
 
         let start = Instant::now();
         let sigma_result = eval_str(
-            "(Σ i 0 2 (scale (select (mkarray a b) i) (select (mkarray P0 P1) i)))",
+            "(Σ i 0 2 (tscale Curve (select (mkarray a b) i) (select (mkarray P0 P1) i)))",
             &env,
         ).unwrap().as_curve().unwrap();
         let elapsed = start.elapsed().as_micros() as f64;
@@ -554,7 +554,7 @@ fn main() {
     }
 
     {
-        let v = eval_str("(eval (scale 3 (poly:duv 1 1)) 2)", &empty_env()).unwrap();
+        let v = eval_str("(eval (tscale DensePoly 3 (poly:duv 1 1)) 2)", &empty_env()).unwrap();
         let passed = v == Value::Int(9);
         println!("  pscale: {}", if passed { "PASS" } else { "FAIL" });
         results.push(TestResult {

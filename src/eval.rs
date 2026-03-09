@@ -583,10 +583,10 @@ fn eval_id(expr: &RecExpr<ArkLang>, id: Id, env: &Env) -> Result<Value, EvalErro
         ArkLang::TScale([t, c, a]) => {
             let ty = resolve_type_tag(expr, *t)?;
             let vc = eval_id(expr, *c, env)?;
-            validate_type(&vc, ArkType::Field)?;
+            let scalar = vc.as_field()?; // accepts both Field and Int
             let va = eval_id(expr, *a, env)?;
             validate_type(&va, ty)?;
-            typed_scale(ty, vc.as_field()?, va)
+            typed_scale(ty, scalar, va)
         }
 
         // ── Typed Pow ──
@@ -1790,7 +1790,7 @@ mod tests {
         env.insert("p".into(), Value::Curve(p));
         env.insert("s".into(), Value::Field(s));
 
-        let result = eval_str("(scale s p)", &env).unwrap().as_curve().unwrap();
+        let result = eval_str("(tscale Curve s p)", &env).unwrap().as_curve().unwrap();
         assert_eq!(result.into_affine(), (p * s).into_affine());
     }
 
@@ -1801,7 +1801,7 @@ mod tests {
         let mut env = empty_env();
         env.insert("p".into(), Value::Curve(p));
 
-        let result = eval_str("(scale 3 p)", &env).unwrap().as_curve().unwrap();
+        let result = eval_str("(tscale Curve 3 p)", &env).unwrap().as_curve().unwrap();
         let expected = p + p + p;
         assert_eq!(result.into_affine(), expected.into_affine());
     }
@@ -1824,7 +1824,7 @@ mod tests {
 
         // MSM([a,b], [P,Q]) = a*P + b*Q
         let result = eval_str(
-            "(add (scale a p) (scale b q))", &env
+            "(add (tscale Curve a p) (tscale Curve b q))", &env
         ).unwrap().as_curve().unwrap();
 
         let expected = p * a + q * b;
@@ -1890,7 +1890,7 @@ mod tests {
 
     #[test]
     fn test_poly_scale() {
-        let v = eval_str("(eval (scale 3 (poly:duv 1 1)) 2)", &empty_env()).unwrap();
+        let v = eval_str("(eval (tscale DensePoly 3 (poly:duv 1 1)) 2)", &empty_env()).unwrap();
         assert_eq!(v, Value::Int(9));
     }
 
@@ -2100,7 +2100,7 @@ mod tests {
         env.insert("P1".into(), Value::Curve(p1));
 
         let result = eval_str(
-            "(Σ i 0 2 (scale (select (mkarray 3 5) i) (select (mkarray P0 P1) i)))",
+            "(Σ i 0 2 (tscale Curve (select (mkarray 3 5) i) (select (mkarray P0 P1) i)))",
             &env,
         ).unwrap().as_curve().unwrap();
 
@@ -2192,7 +2192,7 @@ mod tests {
         env.insert("P".into(), Value::Array(vec![Value::Curve(p0), Value::Curve(p1)]));
 
         let expr: RecExpr<ArkLang> =
-            "(let N (bound 1 10) (Σ i 0 N (scale (select s i) (select P i))))".parse().unwrap();
+            "(let N (bound 1 10) (Σ i 0 N (tscale Curve (select s i) (select P i))))".parse().unwrap();
         let specialized = specialize(&expr, "N".into(), 2);
         let result = eval(&specialized, &env).unwrap().as_curve().unwrap();
 
@@ -2859,9 +2859,11 @@ mod tests {
     }
 
     #[test]
-    fn test_tscale_scalar_must_be_field() {
+    fn test_tscale_int_scalar_coerced() {
         let env = empty_env();
-        assert!(eval_str("(tscale Field 3 (coerce Int Field 5))", &env).is_err());
+        // Int scalar 3 is auto-coerced to Field for tscale
+        let v = eval_str("(tscale Field 3 (coerce Int Field 5))", &env).unwrap();
+        assert_eq!(v, Value::Field(fr(15)));
     }
 
     #[test]

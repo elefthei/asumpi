@@ -36,7 +36,7 @@ proptest! {
     #[test]
     fn rule_scale_one_field(a_val in any::<u64>()) {
         let env = env_with_fields(&[("a", fr(a_val))]);
-        let lhs = eval_str("(scale 1 a)", &env).as_field().unwrap();
+        let lhs = eval_str("(tscale Field 1 a)", &env).as_field().unwrap();
         let rhs = eval_str("a", &env).as_field().unwrap();
         prop_assert_eq!(lhs, rhs);
     }
@@ -45,7 +45,7 @@ proptest! {
     #[test]
     fn rule_scale_one_poly(c0 in any::<u64>(), c1 in any::<u64>(), x in any::<u64>()) {
         let env = env_with_fields(&[("c0", fr(c0)), ("c1", fr(c1)), ("x", fr(x))]);
-        let lhs = eval_str("(eval (scale 1 (poly:duv c0 c1)) x)", &env).as_field().unwrap();
+        let lhs = eval_str("(eval (tscale DensePoly 1 (poly:duv c0 c1)) x)", &env).as_field().unwrap();
         let rhs = eval_str("(eval (poly:duv c0 c1) x)", &env).as_field().unwrap();
         prop_assert_eq!(lhs, rhs);
     }
@@ -54,7 +54,7 @@ proptest! {
     #[test]
     fn rule_scale_zero_field(a_val in any::<u64>()) {
         let env = env_with_fields(&[("a", fr(a_val))]);
-        let lhs = eval_str("(scale 0 a)", &env).as_field().unwrap();
+        let lhs = eval_str("(tscale Field 0 a)", &env).as_field().unwrap();
         prop_assert!(lhs.is_zero());
     }
 
@@ -71,7 +71,7 @@ proptest! {
     fn rule_neg_as_scale_field(a_val in any::<u64>()) {
         let env = env_with_fields(&[("a", fr(a_val))]);
         let lhs = eval_str("(tneg Field a)", &env).as_field().unwrap();
-        let rhs = eval_str("(scale -1 a)", &env).as_field().unwrap();
+        let rhs = eval_str("(tscale Field -1 a)", &env).as_field().unwrap();
         prop_assert_eq!(lhs, rhs);
     }
 
@@ -80,7 +80,7 @@ proptest! {
     fn rule_neg_as_scale_poly(c0 in any::<u64>(), c1 in any::<u64>(), x in any::<u64>()) {
         let env = env_with_fields(&[("c0", fr(c0)), ("c1", fr(c1)), ("x", fr(x))]);
         let lhs = eval_str("(eval (tneg DensePoly (poly:duv c0 c1)) x)", &env).as_field().unwrap();
-        let rhs = eval_str("(eval (scale -1 (poly:duv c0 c1)) x)", &env).as_field().unwrap();
+        let rhs = eval_str("(eval (tscale DensePoly -1 (poly:duv c0 c1)) x)", &env).as_field().unwrap();
         prop_assert_eq!(lhs, rhs);
     }
 }
@@ -122,7 +122,7 @@ proptest! {
     #[test]
     fn rule_eval_scale(c in any::<u64>(), c0 in any::<u64>(), c1 in any::<u64>(), x in any::<u64>()) {
         let env = env_with_fields(&[("c", fr(c)), ("c0", fr(c0)), ("c1", fr(c1)), ("x", fr(x))]);
-        let lhs = eval_str("(eval (scale c (poly:duv c0 c1)) x)", &env).as_field().unwrap();
+        let lhs = eval_str("(eval (tscale DensePoly c (poly:duv c0 c1)) x)", &env).as_field().unwrap();
         let rhs = eval_str("(mul c (eval (poly:duv c0 c1) x))", &env).as_field().unwrap();
         prop_assert_eq!(lhs, rhs);
     }
@@ -230,11 +230,11 @@ proptest! {
     fn rule_sigma_factor_scale(c in any::<u64>(), a in any::<u64>(), b in any::<u64>(), d in any::<u64>()) {
         let env = env_with_fields(&[("c", fr(c)), ("a", fr(a)), ("b", fr(b)), ("d", fr(d))]);
         let lhs = eval_str(
-            "(Σ i 0 3 (scale c (select (mkarray a b d) i)))",
+            "(Σ i 0 3 (tscale Field c (select (mkarray a b d) i)))",
             &env,
         ).as_field().unwrap();
         let rhs = eval_str(
-            "(scale c (Σ i 0 3 (select (mkarray a b d) i)))",
+            "(tscale Field c (Σ i 0 3 (select (mkarray a b d) i)))",
             &env,
         ).as_field().unwrap();
         prop_assert_eq!(lhs, rhs);
@@ -340,7 +340,7 @@ proptest! {
         let env = env_with_fields(&[("a", fr(a)), ("b", fr(b)), ("c", fr(c))]);
         // Expression that multiple rules can transform:
         // scale(c, add(a, b)) can be distributed, reordered, etc.
-        let expr = "(add (scale c (add a b)) (tneg Field (mul a b)))";
+        let expr = "(add (tscale Field c (add a b)) (tneg Field (mul a b)))";
         let original = eval_str(expr, &env);
         let optimized = optimize_and_eval(expr, &env);
         prop_assert_eq!(original, optimized);
@@ -359,7 +359,7 @@ proptest! {
             ("c", fr(c)), ("x", fr(x)),
         ]);
         // eval(scale(c, add(p, q)), x) — multiple rules apply
-        let expr = "(eval (scale c (add (poly:duv a0 a1) (poly:duv b0 b1))) x)";
+        let expr = "(eval (tscale DensePoly c (add (poly:duv a0 a1) (poly:duv b0 b1))) x)";
         let original = eval_str(expr, &env);
         let optimized = optimize_and_eval(expr, &env);
         prop_assert_eq!(original, optimized);
@@ -450,8 +450,8 @@ proptest! {
     #[test]
     fn scale_associativity(a in any::<u64>(), b in any::<u64>(), p in any::<u64>()) {
         let env = env_with_fields(&[("a", fr(a)), ("b", fr(b)), ("p", fr(p))]);
-        let lhs = eval_str("(scale a (scale b p))", &env).as_field().unwrap();
-        let rhs = eval_str("(scale (mul a b) p)", &env).as_field().unwrap();
+        let lhs = eval_str("(tscale Field a (tscale Field b p))", &env).as_field().unwrap();
+        let rhs = eval_str("(tscale Field (mul a b) p)", &env).as_field().unwrap();
         prop_assert_eq!(lhs, rhs);
     }
 

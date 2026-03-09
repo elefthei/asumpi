@@ -181,8 +181,8 @@ proptest! {
         env.insert("s".into(), Value::Field(s));
 
         // s*(P+Q) = s*P + s*Q
-        let lhs = eval_str("(scale s (add p q))", &env).as_curve().unwrap();
-        let rhs = eval_str("(add (scale s p) (scale s q))", &env).as_curve().unwrap();
+        let lhs = eval_str("(tscale Curve s (add p q))", &env).as_curve().unwrap();
+        let rhs = eval_str("(add (tscale Curve s p) (tscale Curve s q))", &env).as_curve().unwrap();
         prop_assert_eq!(lhs.into_affine(), rhs.into_affine());
     }
 
@@ -199,8 +199,8 @@ proptest! {
         env.insert("b".into(), Value::Field(b));
 
         // (a+b)*P = a*P + b*P
-        let lhs = eval_str("(scale (add a b) p)", &env).as_curve().unwrap();
-        let rhs = eval_str("(add (scale a p) (scale b p))", &env).as_curve().unwrap();
+        let lhs = eval_str("(tscale Curve (add a b) p)", &env).as_curve().unwrap();
+        let rhs = eval_str("(add (tscale Curve a p) (tscale Curve b p))", &env).as_curve().unwrap();
         prop_assert_eq!(lhs.into_affine(), rhs.into_affine());
     }
 
@@ -220,10 +220,10 @@ proptest! {
 
         // Σ i=0..2 scale(s_i, P_i) == a*P + b*Q
         let sigma_r = eval_str(
-            "(Σ i 0 2 (scale (select (mkarray a b) i) (select (mkarray p q) i)))",
+            "(Σ i 0 2 (tscale Curve (select (mkarray a b) i) (select (mkarray p q) i)))",
             &env,
         ).as_curve().unwrap();
-        let manual_r = eval_str("(add (scale a p) (scale b q))", &env).as_curve().unwrap();
+        let manual_r = eval_str("(add (tscale Curve a p) (tscale Curve b q))", &env).as_curve().unwrap();
         prop_assert_eq!(sigma_r.into_affine(), manual_r.into_affine());
     }
 }
@@ -382,8 +382,8 @@ proptest! {
             ("c", fr_from_u64(c_val)), ("x", fr_from_u64(x_val)),
         ]);
         // c * (p + q) == c*p + c*q
-        let lhs = eval_str("(eval (scale c (add (poly:duv a0 a1) (poly:duv b0 b1))) x)", &env).as_field().unwrap();
-        let rhs = eval_str("(eval (add (scale c (poly:duv a0 a1)) (scale c (poly:duv b0 b1))) x)", &env).as_field().unwrap();
+        let lhs = eval_str("(eval (tscale DensePoly c (add (poly:duv a0 a1) (poly:duv b0 b1))) x)", &env).as_field().unwrap();
+        let rhs = eval_str("(eval (add (tscale DensePoly c (poly:duv a0 a1)) (tscale DensePoly c (poly:duv b0 b1))) x)", &env).as_field().unwrap();
         prop_assert_eq!(lhs, rhs);
     }
 
