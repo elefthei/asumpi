@@ -1654,13 +1654,13 @@ mod tests {
 
     #[test]
     fn test_field_add() {
-        let v = eval_str("(add 3 7)", &empty_env()).unwrap();
+        let v = eval_str("(tadd Int Int 3 7)", &empty_env()).unwrap();
         assert_eq!(v, Value::Int(10));
     }
 
     #[test]
     fn test_field_sub() {
-        let v = eval_str("(add 10 (tneg Int 3))", &empty_env()).unwrap();
+        let v = eval_str("(tadd Int Int 10 (tneg Int 3))", &empty_env()).unwrap();
         assert_eq!(v, Value::Int(7));
     }
 
@@ -1672,7 +1672,7 @@ mod tests {
 
     #[test]
     fn test_field_neg() {
-        let v = eval_str("(add 5 (tneg Int 5))", &empty_env()).unwrap();
+        let v = eval_str("(tadd Int Int 5 (tneg Int 5))", &empty_env()).unwrap();
         assert_eq!(v, Value::Int(0));
     }
 
@@ -1703,7 +1703,7 @@ mod tests {
 
     #[test]
     fn test_field_additive_identity() {
-        let v = eval_str("(add 42 0)", &empty_env()).unwrap();
+        let v = eval_str("(tadd Int Int 42 0)", &empty_env()).unwrap();
         assert_eq!(v, Value::Int(42));
     }
 
@@ -1739,7 +1739,7 @@ mod tests {
 
     #[test]
     fn test_let_nested() {
-        let v = eval_str("(let x 3 (let y 4 (add (tmul Int Int x x) (tmul Int Int y y))))", &empty_env())
+        let v = eval_str("(let x 3 (let y 4 (tadd Int Int (tmul Int Int x x) (tmul Int Int y y))))", &empty_env())
             .unwrap();
         assert_eq!(v, Value::Int(25));
     }
@@ -1769,7 +1769,7 @@ mod tests {
         env.insert("p".into(), Value::Curve(p));
         env.insert("q".into(), Value::Curve(q));
 
-        let result = eval_str("(add p q)", &env).unwrap().as_curve().unwrap();
+        let result = eval_str("(tadd Curve Curve p q)", &env).unwrap().as_curve().unwrap();
         assert_eq!(result.into_affine(), (p + q).into_affine());
     }
 
@@ -1780,7 +1780,7 @@ mod tests {
         let mut env = empty_env();
         env.insert("p".into(), Value::Curve(p));
 
-        let result = eval_str("(add p (tneg Curve p))", &env).unwrap().as_curve().unwrap();
+        let result = eval_str("(tadd Curve Curve p (tneg Curve p))", &env).unwrap().as_curve().unwrap();
         assert!(result.is_zero());
     }
 
@@ -1827,7 +1827,7 @@ mod tests {
 
         // MSM([a,b], [P,Q]) = a*P + b*Q
         let result = eval_str(
-            "(add (tscale Curve a p) (tscale Curve b q))", &env
+            "(tadd Curve Curve (tscale Curve a p) (tscale Curve b q))", &env
         ).unwrap().as_curve().unwrap();
 
         let expected = p * a + q * b;
@@ -1850,7 +1850,7 @@ mod tests {
 
     #[test]
     fn test_poly_add() {
-        let v = eval_str("(eval (add (poly:duv 1 2) (poly:duv 3 4)) 10)", &empty_env()).unwrap();
+        let v = eval_str("(eval (tadd DensePoly DensePoly (poly:duv 1 2) (poly:duv 3 4)) 10)", &empty_env()).unwrap();
         assert_eq!(v, Value::Int(64));
     }
 
@@ -1862,13 +1862,13 @@ mod tests {
 
     #[test]
     fn test_poly_sub() {
-        let v = eval_str("(eval (add (poly:duv 1 2 3) (tneg DensePoly (poly:duv 1 2))) 2)", &empty_env()).unwrap();
+        let v = eval_str("(eval (tadd DensePoly DensePoly (poly:duv 1 2 3) (tneg DensePoly (poly:duv 1 2))) 2)", &empty_env()).unwrap();
         assert_eq!(v, Value::Int(12));
     }
 
     #[test]
     fn test_poly_neg() {
-        let v = eval_str("(eval (add (poly:duv 1 1) (tneg DensePoly (poly:duv 1 1))) 7)", &empty_env()).unwrap();
+        let v = eval_str("(eval (tadd DensePoly DensePoly (poly:duv 1 1) (tneg DensePoly (poly:duv 1 1))) 7)", &empty_env()).unwrap();
         assert_eq!(v, Value::Int(0));
     }
 
@@ -1926,7 +1926,7 @@ mod tests {
     #[test]
     fn test_mle_add() {
         let v = eval_str(
-            "(eval (add (poly:dmle 2 (mkarray 1 0 0 0)) (poly:dmle 2 (mkarray 0 0 0 1))) (mkarray 0 0))",
+            "(eval (tadd DenseMLE DenseMLE (poly:dmle 2 (mkarray 1 0 0 0)) (poly:dmle 2 (mkarray 0 0 0 1))) (mkarray 0 0))",
             &empty_env(),
         ).unwrap();
         assert_eq!(v, Value::Int(1));
@@ -1955,7 +1955,7 @@ mod tests {
     #[test]
     fn test_mvpoly_add() {
         let v = eval_str(
-            "(eval (add (poly:mv 2 (mkarray 1 1) (mkarray (mkarray) (mkarray 0 1))) (poly:mv 2 (mkarray 2 1) (mkarray (mkarray) (mkarray 1 1)))) (mkarray 1 1))",
+            "(eval (tadd MVPoly MVPoly (poly:mv 2 (mkarray 1 1) (mkarray (mkarray) (mkarray 0 1))) (poly:mv 2 (mkarray 2 1) (mkarray (mkarray) (mkarray 1 1)))) (mkarray 1 1))",
             &empty_env(),
         ).unwrap();
         assert_eq!(v, Value::Int(5));
@@ -2487,14 +2487,14 @@ mod tests {
     #[test]
     fn test_coerce_identity() {
         let env = empty_env();
-        let v = eval_str("(coerce Field Field (add 3 7))", &env).unwrap();
+        let v = eval_str("(coerce Field Field (tadd Field Field 3 7))", &env).unwrap();
         assert_eq!(v.as_field().unwrap(), Fr::from(10u64));
     }
 
     #[test]
     fn test_coerce_field_to_dense_poly() {
         let env = empty_env();
-        let v = eval_str("(coerce Field DensePoly (add 1 2))", &env).unwrap();
+        let v = eval_str("(coerce Field DensePoly (tadd Field Field 1 2))", &env).unwrap();
         let p = v.as_polynomial().unwrap();
         assert_eq!(p.evaluate(&Fr::from(0u64)), Fr::from(3u64));
         assert_eq!(p.evaluate(&Fr::from(99u64)), Fr::from(3u64)); // constant poly
@@ -2503,7 +2503,7 @@ mod tests {
     #[test]
     fn test_coerce_field_to_sparse_poly() {
         let env = empty_env();
-        let v = eval_str("(coerce Field SparsePoly (add 2 3))", &env).unwrap();
+        let v = eval_str("(coerce Field SparsePoly (tadd Field Field 2 3))", &env).unwrap();
         let p = v.as_sparse_uv_poly().unwrap();
         assert_eq!(Polynomial::evaluate(&p, &Fr::from(0u64)), Fr::from(5u64));
     }
@@ -2511,7 +2511,7 @@ mod tests {
     #[test]
     fn test_coerce_field_to_dense_mle() {
         let env = empty_env();
-        let v = eval_str("(coerce Field DenseMLE (add 1 1))", &env).unwrap();
+        let v = eval_str("(coerce Field DenseMLE (tadd Field Field 1 1))", &env).unwrap();
         let m = v.as_mle().unwrap();
         assert_eq!(m.num_vars(), 1);
         // constant MLE: evaluates to 2 everywhere
@@ -2522,7 +2522,7 @@ mod tests {
     #[test]
     fn test_coerce_field_to_sparse_mle() {
         let env = empty_env();
-        let v = eval_str("(coerce Field SparseMLE (add 3 4))", &env).unwrap();
+        let v = eval_str("(coerce Field SparseMLE (tadd Field Field 3 4))", &env).unwrap();
         let m = v.as_sparse_mle().unwrap();
         assert_eq!(m.num_vars(), 1);
         assert_eq!(m.evaluate(&vec![Fr::from(0u64)]), Fr::from(7u64));
@@ -2531,7 +2531,7 @@ mod tests {
     #[test]
     fn test_coerce_field_to_mvpoly() {
         let env = empty_env();
-        let v = eval_str("(coerce Field MVPoly (add 5 6))", &env).unwrap();
+        let v = eval_str("(coerce Field MVPoly (tadd Field Field 5 6))", &env).unwrap();
         let p = v.as_mvpoly().unwrap();
         assert_eq!(p.evaluate(&vec![Fr::from(99u64)]), Fr::from(11u64)); // constant
     }

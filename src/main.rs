@@ -44,15 +44,15 @@ fn main() {
     println!("--- Field Arithmetic ---");
 
     let field_tests = vec![
-        ("add basic", "(add 3 7)", 10i64),
-        ("sub via neg", "(add 10 (tneg Int 3))", 7),
+        ("add basic", "(tadd Field Field 3 7)", 10i64),
+        ("sub via neg", "(tadd Field Field 10 (tneg Int 3))", 7),
         ("mul basic", "(tmul Int Int 6 7)", 42),
-        ("additive identity", "(add 42 0)", 42),
+        ("additive identity", "(tadd Field Field 42 0)", 42),
         ("multiplicative identity", "(tmul Int Int 42 1)", 42),
         ("mul by zero", "(tmul Int Int 42 0)", 0),
         ("double negation", "(tneg Int (tneg Int 5))", 5),
-        ("sub self", "(add 99 (tneg Int 99))", 0),
-        ("nested add", "(add (add 1 2) (add 3 4))", 10),
+        ("sub self", "(tadd Field Field 99 (tneg Int 99))", 0),
+        ("nested add", "(tadd Field Field (tadd Field Field 1 2) (tadd Field Field 3 4))", 10),
         ("distributivity", "(tmul Int Int 3 (tadd Int Int 4 5))", 27),
         ("power", "(tpow Field (coerce Int Field 2) 10)", 1024),
     ];
@@ -139,8 +139,8 @@ fn main() {
         env.insert("b".into(), Value::Field(b));
 
         let start = Instant::now();
-        let r1 = eval_str("(add a b)", &env).unwrap().as_field().unwrap();
-        let r2 = eval_str("(add b a)", &env).unwrap().as_field().unwrap();
+        let r1 = eval_str("(tadd Field Field a b)", &env).unwrap().as_field().unwrap();
+        let r2 = eval_str("(tadd Field Field b a)", &env).unwrap().as_field().unwrap();
         let elapsed = start.elapsed().as_micros() as f64;
         let passed = r1 == r2;
         println!("  add commutativity: {}", if passed { "PASS" } else { "FAIL" });
@@ -169,8 +169,8 @@ fn main() {
         let c = Fr::rand(&mut rng);
         env.insert("c".into(), Value::Field(c));
         let start = Instant::now();
-        let lhs = eval_str("(tmul Field Field a (add b c))", &env).unwrap().as_field().unwrap();
-        let rhs = eval_str("(add (tmul Field Field a b) (tmul Field Field a c))", &env).unwrap().as_field().unwrap();
+        let lhs = eval_str("(tmul Field Field a (tadd Field Field b c))", &env).unwrap().as_field().unwrap();
+        let rhs = eval_str("(tadd Field Field (tmul Field Field a b) (tmul Field Field a c))", &env).unwrap().as_field().unwrap();
         let elapsed = start.elapsed().as_micros() as f64;
         let passed = lhs == rhs;
         println!("  distributivity: {}", if passed { "PASS" } else { "FAIL" });
@@ -183,8 +183,8 @@ fn main() {
         });
 
         let start = Instant::now();
-        let lhs = eval_str("(add (add a b) c)", &env).unwrap().as_field().unwrap();
-        let rhs = eval_str("(add a (add b c))", &env).unwrap().as_field().unwrap();
+        let lhs = eval_str("(tadd Field Field (tadd Field Field a b) c)", &env).unwrap().as_field().unwrap();
+        let rhs = eval_str("(tadd Field Field a (tadd Field Field b c))", &env).unwrap().as_field().unwrap();
         let elapsed = start.elapsed().as_micros() as f64;
         let passed = lhs == rhs;
         println!("  add associativity: {}", if passed { "PASS" } else { "FAIL" });
@@ -211,7 +211,7 @@ fn main() {
         });
 
         let start = Instant::now();
-        let r = eval_str("(add a (tneg Field a))", &env).unwrap().as_field().unwrap();
+        let r = eval_str("(tadd Field Field a (tneg Field a))", &env).unwrap().as_field().unwrap();
         let elapsed = start.elapsed().as_micros() as f64;
         let passed = r.is_zero();
         println!("  additive inverse: {}", if passed { "PASS" } else { "FAIL" });
@@ -249,8 +249,8 @@ fn main() {
         env.insert("q".into(), Value::Curve(q));
 
         let start = Instant::now();
-        let r1 = eval_str("(add p q)", &env).unwrap().as_curve().unwrap();
-        let r2 = eval_str("(add q p)", &env).unwrap().as_curve().unwrap();
+        let r1 = eval_str("(tadd Curve Curve p q)", &env).unwrap().as_curve().unwrap();
+        let r2 = eval_str("(tadd Curve Curve q p)", &env).unwrap().as_curve().unwrap();
         let elapsed = start.elapsed().as_micros() as f64;
         let passed = r1.into_affine() == r2.into_affine();
         println!("  add commutativity: {}", if passed { "PASS" } else { "FAIL" });
@@ -263,7 +263,7 @@ fn main() {
         });
 
         let start = Instant::now();
-        let r = eval_str("(add p (tneg Curve p))", &env).unwrap().as_curve().unwrap();
+        let r = eval_str("(tadd Curve Curve p (tneg Curve p))", &env).unwrap().as_curve().unwrap();
         let elapsed = start.elapsed().as_micros() as f64;
         let passed = r.is_zero();
         println!("  additive inverse: {}", if passed { "PASS" } else { "FAIL" });
@@ -277,7 +277,7 @@ fn main() {
 
         let start = Instant::now();
         let r1 = eval_str("(tscale Curve 3 p)", &env).unwrap().as_curve().unwrap();
-        let r2 = eval_str("(add p (add p p))", &env).unwrap().as_curve().unwrap();
+        let r2 = eval_str("(tadd Curve Curve p (tadd Curve Curve p p))", &env).unwrap().as_curve().unwrap();
         let elapsed = start.elapsed().as_micros() as f64;
         let passed = r1.into_affine() == r2.into_affine();
         println!("  scalar mul consistency: {}", if passed { "PASS" } else { "FAIL" });
@@ -292,8 +292,8 @@ fn main() {
         let s = Fr::rand(&mut rng);
         env.insert("s".into(), Value::Field(s));
         let start = Instant::now();
-        let lhs = eval_str("(tscale Curve s (add p q))", &env).unwrap().as_curve().unwrap();
-        let rhs = eval_str("(add (tscale Curve s p) (tscale Curve s q))", &env).unwrap().as_curve().unwrap();
+        let lhs = eval_str("(tscale Curve s (tadd Curve Curve p q))", &env).unwrap().as_curve().unwrap();
+        let rhs = eval_str("(tadd Curve Curve (tscale Curve s p) (tscale Curve s q))", &env).unwrap().as_curve().unwrap();
         let elapsed = start.elapsed().as_micros() as f64;
         let passed = lhs.into_affine() == rhs.into_affine();
         println!("  scalar mul linearity: {}", if passed { "PASS" } else { "FAIL" });
@@ -310,8 +310,8 @@ fn main() {
         env.insert("a".into(), Value::Field(a));
         env.insert("b".into(), Value::Field(b));
         let start = Instant::now();
-        let lhs = eval_str("(tscale Curve (add a b) p)", &env).unwrap().as_curve().unwrap();
-        let rhs = eval_str("(add (tscale Curve a p) (tscale Curve b p))", &env).unwrap().as_curve().unwrap();
+        let lhs = eval_str("(tscale Curve (tadd Field Field a b) p)", &env).unwrap().as_curve().unwrap();
+        let rhs = eval_str("(tadd Curve Curve (tscale Curve a p) (tscale Curve b p))", &env).unwrap().as_curve().unwrap();
         let elapsed = start.elapsed().as_micros() as f64;
         let passed = lhs.into_affine() == rhs.into_affine();
         println!("  scalar distributivity: {}", if passed { "PASS" } else { "FAIL" });
@@ -416,7 +416,7 @@ fn main() {
 
     {
         let start = Instant::now();
-        let v = eval_str("(eval (add (poly:duv 1 2) (poly:duv 3 4)) 10)", &empty_env())
+        let v = eval_str("(eval (tadd DensePoly DensePoly (poly:duv 1 2) (poly:duv 3 4)) 10)", &empty_env())
             .unwrap()
             .as_field()
             .unwrap();
@@ -468,7 +468,7 @@ fn main() {
             .unwrap();
 
         let horner_result = eval_str(
-            "(add c0 (tmul Field Field x (add c1 (tmul Field Field x (add c2 (tmul Field Field x (add c3 (tmul Field Field x c4))))))))",
+            "(tadd Field Field c0 (tmul Field Field x (tadd Field Field c1 (tmul Field Field x (tadd Field Field c2 (tmul Field Field x (tadd Field Field c3 (tmul Field Field x c4))))))))",
             &env,
         )
         .unwrap()
@@ -489,7 +489,7 @@ fn main() {
     println!("\n--- Extended Polynomial Operations ---");
 
     {
-        let v = eval_str("(eval (add (poly:duv 1 2 3) (tneg DensePoly (poly:duv 1 2))) 2)", &empty_env()).unwrap();
+        let v = eval_str("(eval (tadd DensePoly DensePoly (poly:duv 1 2 3) (tneg DensePoly (poly:duv 1 2))) 2)", &empty_env()).unwrap();
         let passed = v == Value::Int(12);
         println!("  psub: {}", if passed { "PASS" } else { "FAIL" });
         results.push(TestResult {
@@ -502,7 +502,7 @@ fn main() {
     }
 
     {
-        let v = eval_str("(eval (add (poly:duv 1 1) (tneg DensePoly (poly:duv 1 1))) 7)", &empty_env()).unwrap();
+        let v = eval_str("(eval (tadd DensePoly DensePoly (poly:duv 1 1) (tneg DensePoly (poly:duv 1 1))) 7)", &empty_env()).unwrap();
         let passed = v == Value::Int(0);
         println!("  pneg: {}", if passed { "PASS" } else { "FAIL" });
         results.push(TestResult {
@@ -615,7 +615,7 @@ fn main() {
 
     {
         let v = eval_str(
-            "(eval (add (poly:dmle 2 (mkarray 1 0 0 0)) (poly:dmle 2 (mkarray 0 0 0 1))) (mkarray 1 1))",
+            "(eval (tadd DenseMLE DenseMLE (poly:dmle 2 (mkarray 1 0 0 0)) (poly:dmle 2 (mkarray 0 0 0 1))) (mkarray 1 1))",
             &empty_env(),
         ).unwrap();
         let passed = v == Value::Int(1);
@@ -712,7 +712,7 @@ fn main() {
     }
 
     {
-        let v = eval_str("(let x 3 (let y 4 (add (tmul Int Int x x) (tmul Int Int y y))))", &empty_env()).unwrap();
+        let v = eval_str("(let x 3 (let y 4 (tadd Field Field (tmul Int Int x x) (tmul Int Int y y))))", &empty_env()).unwrap();
         let passed = v == Value::Int(25);
         println!("  nested let: {}", if passed { "PASS" } else { "FAIL" });
         results.push(TestResult { category: "control_flow".into(), test_name: "nested_let".into(), passed, details: "let x=3 in let y=4 in x^2+y^2 = 25".into(), time_us: 0.0 });
@@ -764,7 +764,7 @@ fn main() {
     println!("\n--- Complex Integration Tests ---");
 
     {
-        let expr_str = "(add (tmul Field Field 3 x) (tneg Field y))";
+        let expr_str = "(tadd Field Field (tmul Field Field 3 x) (tneg Field y))";
         let expr: RecExpr<ArkLang> = expr_str.parse().unwrap();
         let displayed = expr.to_string();
         let reparsed: RecExpr<ArkLang> = displayed.parse().unwrap();
@@ -776,12 +776,12 @@ fn main() {
     {
         use egg::{EGraph, Runner, Rewrite, rewrite};
 
-        let expr: RecExpr<ArkLang> = "(add (tmul Field Field 3 x) (tmul Field Field 4 x))".parse().unwrap();
+        let expr: RecExpr<ArkLang> = "(tadd Field Field (tmul Field Field 3 x) (tmul Field Field 4 x))".parse().unwrap();
         let mut egraph: EGraph<ArkLang, ()> = EGraph::default();
         let _root = egraph.add_expr(&expr);
 
         let rules: Vec<Rewrite<ArkLang, ()>> = vec![
-            rewrite!("add-comm"; "(add ?a ?b)" => "(add ?b ?a)"),
+            rewrite!("tadd-comm"; "(tadd ?T ?V ?a ?b)" => "(tadd ?V ?T ?b ?a)"),
             rewrite!("tmul-comm"; "(tmul ?T ?V ?a ?b)" => "(tmul ?V ?T ?b ?a)"),
         ];
 

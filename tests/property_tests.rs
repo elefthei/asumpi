@@ -25,8 +25,8 @@ proptest! {
         let b = fr_from_u64(b_val);
         let env = env_with_fields(&[("a", a), ("b", b)]);
 
-        let r1 = eval_str("(add a b)", &env).as_field().unwrap();
-        let r2 = eval_str("(add b a)", &env).as_field().unwrap();
+        let r1 = eval_str("(tadd Field Field a b)", &env).as_field().unwrap();
+        let r2 = eval_str("(tadd Field Field b a)", &env).as_field().unwrap();
         prop_assert_eq!(r1, r2);
     }
 
@@ -46,8 +46,8 @@ proptest! {
         let (a, b, c) = (fr_from_u64(a_val), fr_from_u64(b_val), fr_from_u64(c_val));
         let env = env_with_fields(&[("a", a), ("b", b), ("c", c)]);
 
-        let lhs = eval_str("(add (add a b) c)", &env).as_field().unwrap();
-        let rhs = eval_str("(add a (add b c))", &env).as_field().unwrap();
+        let lhs = eval_str("(tadd Field Field (tadd Field Field a b) c)", &env).as_field().unwrap();
+        let rhs = eval_str("(tadd Field Field a (tadd Field Field b c))", &env).as_field().unwrap();
         prop_assert_eq!(lhs, rhs);
     }
 
@@ -66,8 +66,8 @@ proptest! {
         let (a, b, c) = (fr_from_u64(a_val), fr_from_u64(b_val), fr_from_u64(c_val));
         let env = env_with_fields(&[("a", a), ("b", b), ("c", c)]);
 
-        let lhs = eval_str("(tmul Field Field a (add b c))", &env).as_field().unwrap();
-        let rhs = eval_str("(add (tmul Field Field a b) (tmul Field Field a c))", &env).as_field().unwrap();
+        let lhs = eval_str("(tmul Field Field a (tadd Field Field b c))", &env).as_field().unwrap();
+        let rhs = eval_str("(tadd Field Field (tmul Field Field a b) (tmul Field Field a c))", &env).as_field().unwrap();
         prop_assert_eq!(lhs, rhs);
     }
 
@@ -76,7 +76,7 @@ proptest! {
         let a = fr_from_u64(a_val);
         let env = env_with_fields(&[("a", a)]);
 
-        let r = eval_str("(add a 0)", &env).as_field().unwrap();
+        let r = eval_str("(tadd Field Field a 0)", &env).as_field().unwrap();
         prop_assert_eq!(r, a);
     }
 
@@ -94,7 +94,7 @@ proptest! {
         let a = fr_from_u64(a_val);
         let env = env_with_fields(&[("a", a)]);
 
-        let r = eval_str("(add a (tneg Field a))", &env).as_field().unwrap();
+        let r = eval_str("(tadd Field Field a (tneg Field a))", &env).as_field().unwrap();
         prop_assert!(r.is_zero());
     }
 
@@ -122,7 +122,7 @@ proptest! {
         let env = env_with_fields(&[("a", a), ("b", b)]);
 
         // a - b = a + (-b)
-        let r = eval_str("(add a (tneg Field b))", &env).as_field().unwrap();
+        let r = eval_str("(tadd Field Field a (tneg Field b))", &env).as_field().unwrap();
         prop_assert_eq!(r, a - b);
     }
 
@@ -151,8 +151,8 @@ proptest! {
         env.insert("p".into(), Value::Curve(p));
         env.insert("q".into(), Value::Curve(q));
 
-        let r1 = eval_str("(add p q)", &env).as_curve().unwrap();
-        let r2 = eval_str("(add q p)", &env).as_curve().unwrap();
+        let r1 = eval_str("(tadd Curve Curve p q)", &env).as_curve().unwrap();
+        let r2 = eval_str("(tadd Curve Curve q p)", &env).as_curve().unwrap();
         prop_assert_eq!(r1.into_affine(), r2.into_affine());
     }
 
@@ -164,7 +164,7 @@ proptest! {
         let mut env: Env = HashMap::new();
         env.insert("p".into(), Value::Curve(p));
 
-        let r = eval_str("(add p (tneg Curve p))", &env).as_curve().unwrap();
+        let r = eval_str("(tadd Curve Curve p (tneg Curve p))", &env).as_curve().unwrap();
         prop_assert!(r.is_zero());
     }
 
@@ -181,8 +181,8 @@ proptest! {
         env.insert("s".into(), Value::Field(s));
 
         // s*(P+Q) = s*P + s*Q
-        let lhs = eval_str("(tscale Curve s (add p q))", &env).as_curve().unwrap();
-        let rhs = eval_str("(add (tscale Curve s p) (tscale Curve s q))", &env).as_curve().unwrap();
+        let lhs = eval_str("(tscale Curve s (tadd Curve Curve p q))", &env).as_curve().unwrap();
+        let rhs = eval_str("(tadd Curve Curve (tscale Curve s p) (tscale Curve s q))", &env).as_curve().unwrap();
         prop_assert_eq!(lhs.into_affine(), rhs.into_affine());
     }
 
@@ -199,8 +199,8 @@ proptest! {
         env.insert("b".into(), Value::Field(b));
 
         // (a+b)*P = a*P + b*P
-        let lhs = eval_str("(tscale Curve (add a b) p)", &env).as_curve().unwrap();
-        let rhs = eval_str("(add (tscale Curve a p) (tscale Curve b p))", &env).as_curve().unwrap();
+        let lhs = eval_str("(tscale Curve (tadd Field Field a b) p)", &env).as_curve().unwrap();
+        let rhs = eval_str("(tadd Curve Curve (tscale Curve a p) (tscale Curve b p))", &env).as_curve().unwrap();
         prop_assert_eq!(lhs.into_affine(), rhs.into_affine());
     }
 
@@ -223,7 +223,7 @@ proptest! {
             "(Σ i 0 2 (tscale Curve (tselect Field (mkarray a b) i) (tselect Curve (mkarray p q) i)))",
             &env,
         ).as_curve().unwrap();
-        let manual_r = eval_str("(add (tscale Curve a p) (tscale Curve b q))", &env).as_curve().unwrap();
+        let manual_r = eval_str("(tadd Curve Curve (tscale Curve a p) (tscale Curve b q))", &env).as_curve().unwrap();
         prop_assert_eq!(sigma_r.into_affine(), manual_r.into_affine());
     }
 }
@@ -244,7 +244,7 @@ proptest! {
         let env = env_with_fields(&[("c0", fc0), ("c1", fc1), ("c2", fc2), ("x", fx)]);
 
         let poly_r = eval_str("(eval (poly:duv c0 c1 c2) x)", &env).as_field().unwrap();
-        let horner_r = eval_str("(add c0 (tmul Field Field x (add c1 (tmul Field Field x c2))))", &env).as_field().unwrap();
+        let horner_r = eval_str("(tadd Field Field c0 (tmul Field Field x (tadd Field Field c1 (tmul Field Field x c2))))", &env).as_field().unwrap();
         prop_assert_eq!(poly_r, horner_r);
     }
 
@@ -260,8 +260,8 @@ proptest! {
             ("x", fr_from_u64(x_val)),
         ]);
 
-        let r1 = eval_str("(eval (add (poly:duv a0 a1) (poly:duv b0 b1)) x)", &env).as_field().unwrap();
-        let r2 = eval_str("(eval (add (poly:duv b0 b1) (poly:duv a0 a1)) x)", &env).as_field().unwrap();
+        let r1 = eval_str("(eval (tadd DensePoly DensePoly (poly:duv a0 a1) (poly:duv b0 b1)) x)", &env).as_field().unwrap();
+        let r2 = eval_str("(eval (tadd DensePoly DensePoly (poly:duv b0 b1) (poly:duv a0 a1)) x)", &env).as_field().unwrap();
         prop_assert_eq!(r1, r2);
     }
 
@@ -357,7 +357,7 @@ proptest! {
             ("c0", fr_from_u64(c0)), ("c1", fr_from_u64(c1)), ("c2", fr_from_u64(c2)),
             ("x", fr_from_u64(x)),
         ]);
-        let r = eval_str("(eval (add (poly:duv c0 c1 c2) (tneg DensePoly (poly:duv c0 c1 c2))) x)", &env).as_field().unwrap();
+        let r = eval_str("(eval (tadd DensePoly DensePoly (poly:duv c0 c1 c2) (tneg DensePoly (poly:duv c0 c1 c2))) x)", &env).as_field().unwrap();
         prop_assert!(r.is_zero());
     }
 
@@ -366,7 +366,7 @@ proptest! {
         let env = env_with_fields(&[
             ("c0", fr_from_u64(c0)), ("c1", fr_from_u64(c1)), ("x", fr_from_u64(x)),
         ]);
-        let r = eval_str("(eval (add (poly:duv c0 c1) (tneg DensePoly (poly:duv c0 c1))) x)", &env).as_field().unwrap();
+        let r = eval_str("(eval (tadd DensePoly DensePoly (poly:duv c0 c1) (tneg DensePoly (poly:duv c0 c1))) x)", &env).as_field().unwrap();
         prop_assert!(r.is_zero());
     }
 
@@ -382,8 +382,8 @@ proptest! {
             ("c", fr_from_u64(c_val)), ("x", fr_from_u64(x_val)),
         ]);
         // c * (p + q) == c*p + c*q
-        let lhs = eval_str("(eval (tscale DensePoly c (add (poly:duv a0 a1) (poly:duv b0 b1))) x)", &env).as_field().unwrap();
-        let rhs = eval_str("(eval (add (tscale DensePoly c (poly:duv a0 a1)) (tscale DensePoly c (poly:duv b0 b1))) x)", &env).as_field().unwrap();
+        let lhs = eval_str("(eval (tscale DensePoly c (tadd DensePoly DensePoly (poly:duv a0 a1) (poly:duv b0 b1))) x)", &env).as_field().unwrap();
+        let rhs = eval_str("(eval (tadd DensePoly DensePoly (tscale DensePoly c (poly:duv a0 a1)) (tscale DensePoly c (poly:duv b0 b1))) x)", &env).as_field().unwrap();
         prop_assert_eq!(lhs, rhs);
     }
 
