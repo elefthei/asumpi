@@ -92,6 +92,11 @@ define_language! {
         // ── Typed Operations (coexist with untyped during migration) ──
         "coerce" = Coerce([Id; 3]),
         "tadd"   = TAdd([Id; 4]),
+        "tneg"   = TNeg([Id; 2]),
+        "tmul"   = TMul([Id; 4]),
+        "tinv"   = TInv([Id; 2]),
+        "tscale" = TScale([Id; 3]),
+        "tpow"   = TPow([Id; 3]),
 
         // ── Variable Reference ──
         Symbol(egg::Symbol),

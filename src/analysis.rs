@@ -281,12 +281,37 @@ impl Analysis<ArkLang> for TypeAnalysis {
             }
 
             // ── Typed Add ──
-            ArkLang::TAdd([_ta, _tb, a, b]) => {
+            ArkLang::TAdd([_ta, _tb, a, b]) | ArkLang::TMul([_ta, _tb, a, b]) => {
                 free_vars.extend(&cd(a).free_vars);
                 free_vars.extend(&cd(b).free_vars);
-                // Result type comes from operands (type tags are structural, not data)
                 types.extend(&cd(a).types);
                 types.extend(&cd(b).types);
+            }
+
+            // ── Typed Neg ──
+            ArkLang::TNeg([_t, a]) => {
+                free_vars.extend(&cd(a).free_vars);
+                types.extend(&cd(a).types);
+            }
+
+            // ── Typed Inv ──
+            ArkLang::TInv([_t, a]) => {
+                free_vars.extend(&cd(a).free_vars);
+                types.insert(ArkType::Field);
+            }
+
+            // ── Typed Scale ──
+            ArkLang::TScale([_t, c, a]) => {
+                free_vars.extend(&cd(c).free_vars);
+                free_vars.extend(&cd(a).free_vars);
+                types.extend(&cd(a).types);
+            }
+
+            // ── Typed Pow ──
+            ArkLang::TPow([_t, base, exp]) => {
+                free_vars.extend(&cd(base).free_vars);
+                free_vars.extend(&cd(exp).free_vars);
+                types.insert(ArkType::Field);
             }
         }
 

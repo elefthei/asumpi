@@ -96,7 +96,40 @@ pub fn typed_add_rules() -> Vec<Rewrite<ArkLang, TypeAnalysis>> {
     vec![
         rewrite!("tadd-comm"; "(tadd ?T ?V ?a ?b)" => "(tadd ?V ?T ?b ?a)"),
         rewrite!("tadd-assoc"; "(tadd ?T ?V ?a (tadd ?V ?W ?b ?c))" => "(tadd ?T ?W (tadd ?T ?V ?a ?b) ?c)"),
-        rewrite!("tadd-neg"; "(tadd ?T ?T ?a (neg ?a))" => "0"),
+        rewrite!("tadd-neg"; "(tadd ?T ?T ?a (tneg ?T ?a))" => "0"),
+    ]
+}
+
+/// Typed arithmetic rules (Wave 2: tneg, tmul, tscale, tpow).
+pub fn typed_arith_rules() -> Vec<Rewrite<ArkLang, TypeAnalysis>> {
+    vec![
+        // ── Negation ──
+        rewrite!("double-tneg"; "(tneg ?T (tneg ?T ?a))" => "?a"),
+        rewrite!("tneg-as-tscale"; "(tneg ?T ?a)" => "(tscale ?T -1 ?a)"),
+
+        // ── Multiplication ──
+        rewrite!("tmul-comm"; "(tmul ?T ?V ?a ?b)" => "(tmul ?V ?T ?b ?a)"),
+        rewrite!("tmul-assoc"; "(tmul ?T ?V ?a (tmul ?V ?W ?b ?c))" => "(tmul ?T ?W (tmul ?T ?V ?a ?b) ?c)"),
+        rewrite!("tmul-dist"; "(tmul ?T ?T ?a (tadd ?T ?T ?b ?c))" => "(tadd ?T ?T (tmul ?T ?T ?a ?b) (tmul ?T ?T ?a ?c))"),
+
+        // ── Scale ──
+        rewrite!("tscale-one"; "(tscale ?T 1 ?a)" => "?a"),
+        rewrite!("tscale-zero"; "(tscale ?T 0 ?a)" => "0"),
+        rewrite!("tscale-dist"; "(tscale ?T ?c (tadd ?T ?T ?a ?b))" => "(tadd ?T ?T (tscale ?T ?c ?a) (tscale ?T ?c ?b))"),
+    ]
+}
+
+/// Typed guarded sigma rules for tscale/tmul factor extraction.
+pub fn typed_guarded_arith_rules() -> Vec<Rewrite<ArkLang, TypeAnalysis>> {
+    vec![
+        rewrite!("sigma-factor-tscale";
+            "(Σ ?i ?lo ?hi (tscale ?T ?c ?f))" => "(tscale ?T ?c (Σ ?i ?lo ?hi ?f))"
+            if IndependentOf { expr_var: "?c".parse().unwrap(), idx_var: "?i".parse().unwrap() }
+        ),
+        rewrite!("sigma-factor-tmul";
+            "(Σ ?i ?lo ?hi (tmul ?T ?T ?c ?f))" => "(tmul ?T ?T ?c (Σ ?i ?lo ?hi ?f))"
+            if IndependentOf { expr_var: "?c".parse().unwrap(), idx_var: "?i".parse().unwrap() }
+        ),
     ]
 }
 
@@ -234,8 +267,10 @@ pub fn all_rules() -> Vec<Rewrite<ArkLang, TypeAnalysis>> {
     rules.extend(guarded_sigma_rules());
     rules.extend(conversion_rules());
     rules.extend(typed_add_rules());
+    rules.extend(typed_arith_rules());
     rules.extend(typed_sigma_rules());
     rules.extend(typed_guarded_sigma_rules());
+    rules.extend(typed_guarded_arith_rules());
     rules.extend(typed_sigma_unroll_rules());
     rules
 }
@@ -856,5 +891,100 @@ mod tests {
             .with_egraph(egraph)
             .run(&rules);
         assert!(runner.egraph.number_of_classes() > 1, "typed unroll-3 should add nodes");
+    }
+
+    // ═══════════════════════════════════════════════
+    // Wave 2: Typed arith rewrite rules
+    // ═══════════════════════════════════════════════
+
+    #[test]
+    fn test_double_tneg() {
+        let rules = typed_arith_rules();
+        let simplified = simplify("(tneg Field (tneg Field x))", &rules);
+        assert_eq!(simplified, "x");
+    }
+
+    #[test]
+    fn test_tmul_comm() {
+        let rules = typed_arith_rules();
+        assert_merge(
+            "(tmul Field Field x y)",
+            "(tmul Field Field y x)",
+            &rules, "tmul-comm"
+        );
+    }
+
+    #[test]
+    fn test_tmul_assoc() {
+        let rules = typed_arith_rules();
+        assert_merge(
+            "(tmul Field Field a (tmul Field Field b c))",
+            "(tmul Field Field (tmul Field Field a b) c)",
+            &rules, "tmul-assoc"
+        );
+    }
+
+    #[test]
+    fn test_tmul_dist() {
+        let rules = all_rules();
+        assert_merge(
+            "(tmul Field Field a (tadd Field Field b c))",
+            "(tadd Field Field (tmul Field Field a b) (tmul Field Field a c))",
+            &rules, "tmul-dist"
+        );
+    }
+
+    #[test]
+    fn test_tscale_one() {
+        let rules = typed_arith_rules();
+        let simplified = simplify("(tscale Field 1 x)", &rules);
+        assert_eq!(simplified, "x");
+    }
+
+    #[test]
+    fn test_tscale_zero() {
+        let rules = typed_arith_rules();
+        let simplified = simplify("(tscale Field 0 x)", &rules);
+        assert_eq!(simplified, "0");
+    }
+
+    #[test]
+    fn test_tscale_dist() {
+        let rules = all_rules();
+        assert_merge(
+            "(tscale Field c (tadd Field Field a b))",
+            "(tadd Field Field (tscale Field c a) (tscale Field c b))",
+            &rules, "tscale-dist"
+        );
+    }
+
+    #[test]
+    fn test_sigma_factor_tscale() {
+        let rules = typed_guarded_arith_rules();
+        assert_merge(
+            "(Σ i 0 N (tscale Field c (select arr i)))",
+            "(tscale Field c (Σ i 0 N (select arr i)))",
+            &rules, "sigma-factor-tscale"
+        );
+    }
+
+    #[test]
+    fn test_sigma_factor_tscale_blocked() {
+        let rules = typed_guarded_arith_rules();
+        assert_no_merge(
+            "(Σ i 0 N (tscale Field i (select arr i)))",
+            "(tscale Field i (Σ i 0 N (select arr i)))",
+            &rules, "sigma-factor-tscale should NOT fire when scalar depends on loop var"
+        );
+    }
+
+    #[test]
+    fn test_sigma_factor_tmul() {
+        let rules = typed_guarded_arith_rules();
+        assert_merge(
+            "(Σ i 0 N (tmul Field Field c (select arr i)))",
+            "(tmul Field Field c (Σ i 0 N (select arr i)))",
+            &rules, "sigma-factor-tmul"
+        );
     }
 }

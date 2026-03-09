@@ -545,6 +545,75 @@ fn eval_id(expr: &RecExpr<ArkLang>, id: Id, env: &Env) -> Result<Value, EvalErro
             validate_type(&vb, ty_b)?;
             typed_add(ty_a, ty_b, va, vb)
         }
+
+        // ── Typed Neg ──
+        ArkLang::TNeg([t, a]) => {
+            let ty = resolve_type_tag(expr, *t)?;
+            let va = eval_id(expr, *a, env)?;
+            validate_type(&va, ty)?;
+            typed_neg(ty, va)
+        }
+
+        // ── Typed Mul ──
+        ArkLang::TMul([ta, tb, a, b]) => {
+            let ty_a = resolve_type_tag(expr, *ta)?;
+            let ty_b = resolve_type_tag(expr, *tb)?;
+            let va = eval_id(expr, *a, env)?;
+            let vb = eval_id(expr, *b, env)?;
+            validate_type(&va, ty_a)?;
+            validate_type(&vb, ty_b)?;
+            typed_mul(ty_a, ty_b, va, vb)
+        }
+
+        // ── Typed Inv ──
+        ArkLang::TInv([t, a]) => {
+            let ty = resolve_type_tag(expr, *t)?;
+            let va = eval_id(expr, *a, env)?;
+            validate_type(&va, ty)?;
+            match ty {
+                ArkType::Field => {
+                    let f = va.as_field()?;
+                    f.inverse().map(Value::Field).ok_or(EvalError::DivisionByZero)
+                }
+                _ => Err(EvalError::TypeError(format!("tinv: only Field supported, got {:?}", ty))),
+            }
+        }
+
+        // ── Typed Scale ──
+        ArkLang::TScale([t, c, a]) => {
+            let ty = resolve_type_tag(expr, *t)?;
+            let vc = eval_id(expr, *c, env)?;
+            validate_type(&vc, ArkType::Field)?;
+            let va = eval_id(expr, *a, env)?;
+            validate_type(&va, ty)?;
+            typed_scale(ty, vc.as_field()?, va)
+        }
+
+        // ── Typed Pow ──
+        ArkLang::TPow([t, base, exp]) => {
+            let ty = resolve_type_tag(expr, *t)?;
+            let vb = eval_id(expr, *base, env)?;
+            validate_type(&vb, ty)?;
+            let ve = eval_id(expr, *exp, env)?;
+            validate_type(&ve, ArkType::Int)?;
+            match ty {
+                ArkType::Field => {
+                    let b = vb.as_field()?;
+                    let e = ve.as_int()?;
+                    if e >= 0 {
+                        let mut result = Fr::from(1u64);
+                        for _ in 0..e { result *= b; }
+                        Ok(Value::Field(result))
+                    } else {
+                        let inv = b.inverse().ok_or(EvalError::DivisionByZero)?;
+                        let mut result = Fr::from(1u64);
+                        for _ in 0..(-e) { result *= inv; }
+                        Ok(Value::Field(result))
+                    }
+                }
+                _ => Err(EvalError::TypeError(format!("tpow: only Field supported, got {:?}", ty))),
+            }
+        }
     }
 }
 
@@ -780,6 +849,89 @@ fn typed_add(ty_a: ArkType, ty_b: ArkType, va: Value, vb: Value) -> Result<Value
         _ => Err(EvalError::TypeError(format!(
             "tadd: incompatible types {:?} and {:?}", ty_a, ty_b
         ))),
+    }
+}
+
+/// Strictly-typed neg: operand must match declared type.
+fn typed_neg(ty: ArkType, va: Value) -> Result<Value, EvalError> {
+    use ArkType::*;
+    match ty {
+        Field => Ok(Value::Field(-va.as_field()?)),
+        Int => Ok(Value::Field(-int_to_fr(va.as_int()?))),
+        Curve => Ok(Value::Curve(-va.as_curve()?)),
+        DensePoly => Ok(Value::Polynomial(-va.as_polynomial()?)),
+        SparsePoly => {
+            let p = va.as_sparse_uv_poly()?;
+            let neg_coeffs: Vec<(usize, Fr)> = p.to_vec().iter()
+                .map(|(i, c)| (*i, -(*c)))
+                .collect();
+            Ok(Value::SparseUVPoly(SparseUVPolynomial::from_coefficients_vec(neg_coeffs)))
+        }
+        DenseMLE => {
+            let m = va.as_mle()?;
+            let nv = m.num_vars();
+            let neg_evals: Vec<Fr> = m.to_evaluations().iter().map(|v| -(*v)).collect();
+            Ok(Value::MLE(DenseMultilinearExtension::from_evaluations_vec(nv, neg_evals)))
+        }
+        MVPoly => {
+            let p = va.as_mvpoly()?;
+            let nv = p.num_vars();
+            let neg_terms: Vec<(Fr, SparseTerm)> = p.terms().iter()
+                .map(|(c, t)| (-(*c), t.clone()))
+                .collect();
+            Ok(Value::MVPoly(MVSparsePolynomial::from_coefficients_vec(nv, neg_terms)))
+        }
+        _ => Err(EvalError::TypeError(format!("tneg: unsupported type {:?}", ty))),
+    }
+}
+
+/// Strictly-typed mul: both operands must match declared types.
+fn typed_mul(ty_a: ArkType, ty_b: ArkType, va: Value, vb: Value) -> Result<Value, EvalError> {
+    use ArkType::*;
+    match (ty_a, ty_b) {
+        (Field, Field) => Ok(Value::Field(va.as_field()? * vb.as_field()?)),
+        (Int, Int) => Ok(Value::Field(int_to_fr(va.as_int()?) * int_to_fr(vb.as_int()?))),
+        (DensePoly, DensePoly) => {
+            let pa = va.as_polynomial()?;
+            let pb = vb.as_polynomial()?;
+            Ok(Value::Polynomial(&pa * &pb))
+        }
+        _ => Err(EvalError::TypeError(format!(
+            "tmul: incompatible types {:?} and {:?}", ty_a, ty_b
+        ))),
+    }
+}
+
+/// Strictly-typed scale: scalar must be Field, target must match declared type.
+fn typed_scale(ty: ArkType, scalar: Fr, va: Value) -> Result<Value, EvalError> {
+    use ArkType::*;
+    match ty {
+        Field => Ok(Value::Field(scalar * va.as_field()?)),
+        Int => Ok(Value::Field(scalar * int_to_fr(va.as_int()?))),
+        Curve => Ok(Value::Curve(va.as_curve()? * scalar)),
+        DensePoly => Ok(Value::Polynomial(&va.as_polynomial()? * scalar)),
+        SparsePoly => {
+            let p = va.as_sparse_uv_poly()?;
+            let scaled: Vec<(usize, Fr)> = p.to_vec().iter()
+                .map(|(i, coeff)| (*i, *coeff * scalar))
+                .collect();
+            Ok(Value::SparseUVPoly(SparseUVPolynomial::from_coefficients_vec(scaled)))
+        }
+        DenseMLE => {
+            let m = va.as_mle()?;
+            let nv = m.num_vars();
+            let scaled_evals: Vec<Fr> = m.to_evaluations().iter().map(|v| *v * scalar).collect();
+            Ok(Value::MLE(DenseMultilinearExtension::from_evaluations_vec(nv, scaled_evals)))
+        }
+        MVPoly => {
+            let p = va.as_mvpoly()?;
+            let nv = p.num_vars();
+            let scaled_terms: Vec<(Fr, SparseTerm)> = p.terms().iter()
+                .map(|(c, t)| (*c * scalar, t.clone()))
+                .collect();
+            Ok(Value::MVPoly(MVSparsePolynomial::from_coefficients_vec(nv, scaled_terms)))
+        }
+        _ => Err(EvalError::TypeError(format!("tscale: unsupported target type {:?}", ty))),
     }
 }
 
@@ -2336,5 +2488,121 @@ mod tests {
         // (1 + 2x) + 5 = (6 + 2x)
         assert_eq!(p.evaluate(&Fr::from(0u64)), Fr::from(6u64));
         assert_eq!(p.evaluate(&Fr::from(1u64)), Fr::from(8u64));
+    }
+
+    // ═══════════════════════════════════════════════
+    // Wave 2: Typed neg, mul, inv, scale, pow
+    // ═══════════════════════════════════════════════
+
+    #[test]
+    fn test_tneg_field() {
+        let env = empty_env();
+        let v = eval_str("(tneg Field (coerce Int Field 5))", &env).unwrap();
+        assert_eq!(v.as_field().unwrap(), -Fr::from(5u64));
+    }
+
+    #[test]
+    fn test_tneg_dense_poly() {
+        let env = empty_env();
+        let v = eval_str("(tneg DensePoly (poly:duv 1 2))", &env).unwrap();
+        let p = v.as_polynomial().unwrap();
+        assert_eq!(p.evaluate(&Fr::from(0u64)), -Fr::from(1u64));
+        assert_eq!(p.evaluate(&Fr::from(1u64)), -Fr::from(3u64));
+    }
+
+    #[test]
+    fn test_tneg_type_mismatch() {
+        let env = empty_env();
+        assert!(eval_str("(tneg Field 5)", &env).is_err());
+    }
+
+    #[test]
+    fn test_tmul_field_field() {
+        let env = empty_env();
+        let v = eval_str("(tmul Field Field (coerce Int Field 3) (coerce Int Field 7))", &env).unwrap();
+        assert_eq!(v.as_field().unwrap(), Fr::from(21u64));
+    }
+
+    #[test]
+    fn test_tmul_dense_poly() {
+        let env = empty_env();
+        let v = eval_str("(tmul DensePoly DensePoly (poly:duv 1 1) (poly:duv 1 1))", &env).unwrap();
+        let p = v.as_polynomial().unwrap();
+        assert_eq!(p.evaluate(&Fr::from(2u64)), Fr::from(9u64));
+    }
+
+    #[test]
+    fn test_tmul_incompatible() {
+        let env = empty_env();
+        assert!(eval_str("(tmul Field Curve (coerce Int Field 3) (coerce Int Field 7))", &env).is_err());
+    }
+
+    #[test]
+    fn test_tinv_field() {
+        let env = empty_env();
+        let v = eval_str("(tinv Field (coerce Int Field 2))", &env).unwrap();
+        let inv2 = v.as_field().unwrap();
+        assert_eq!(inv2 * Fr::from(2u64), Fr::from(1u64));
+    }
+
+    #[test]
+    fn test_tinv_zero() {
+        let env = empty_env();
+        assert!(eval_str("(tinv Field (coerce Int Field 0))", &env).is_err());
+    }
+
+    #[test]
+    fn test_tinv_non_field() {
+        let env = empty_env();
+        assert!(eval_str("(tinv DensePoly (poly:duv 1 2))", &env).is_err());
+    }
+
+    #[test]
+    fn test_tscale_curve() {
+        use ark_ec::CurveGroup;
+        use ark_bls12_381::G1Projective;
+        use ark_std::UniformRand;
+        let mut rng = ark_std::test_rng();
+        let p = G1Projective::rand(&mut rng);
+        let mut env = empty_env();
+        env.insert(Symbol::from("P"), Value::Curve(p));
+        env.insert(Symbol::from("c"), Value::Field(Fr::from(3u64)));
+        let v = eval_str("(tscale Curve c P)", &env).unwrap();
+        assert_eq!(v.as_curve().unwrap().into_affine(), (p * Fr::from(3u64)).into_affine());
+    }
+
+    #[test]
+    fn test_tscale_dense_poly() {
+        let env = empty_env();
+        let v = eval_str("(tscale DensePoly (coerce Int Field 3) (poly:duv 1 2))", &env).unwrap();
+        let p = v.as_polynomial().unwrap();
+        assert_eq!(p.evaluate(&Fr::from(1u64)), Fr::from(9u64));
+    }
+
+    #[test]
+    fn test_tscale_scalar_must_be_field() {
+        let env = empty_env();
+        assert!(eval_str("(tscale Field 3 (coerce Int Field 5))", &env).is_err());
+    }
+
+    #[test]
+    fn test_tpow_field() {
+        let env = empty_env();
+        let v = eval_str("(tpow Field (coerce Int Field 3) 4)", &env).unwrap();
+        assert_eq!(v.as_field().unwrap(), Fr::from(81u64));
+    }
+
+    #[test]
+    fn test_tpow_negative_exp() {
+        let env = empty_env();
+        let v = eval_str("(tpow Field (coerce Int Field 2) -1)", &env).unwrap();
+        let result = v.as_field().unwrap();
+        assert_eq!(result * Fr::from(2u64), Fr::from(1u64));
+    }
+
+    #[test]
+    fn test_tpow_non_field() {
+        let env = empty_env();
+        assert!(eval_str("(tpow DensePoly (poly:duv 1 2) 3)", &env).is_err());
     }
 }
