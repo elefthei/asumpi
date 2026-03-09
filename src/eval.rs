@@ -1,7 +1,7 @@
 // arkΣΠ Runtime Evaluator
 //
 // Recursively evaluates a RecExpr<ArkLang> against arkworks types.
-// Uses type dispatch for generic operations (add, mul, neg, etc).
+// Uses typed dispatch functions for arithmetic operations.
 
 use std::collections::HashMap;
 
@@ -29,51 +29,6 @@ pub fn eval(expr: &RecExpr<ArkLang>, env: &Env) -> Result<Value, EvalError> {
     eval_id(expr, root, env)
 }
 
-/// Generic add for two Value operands.
-fn value_add(va: Value, vb: Value) -> Result<Value, EvalError> {
-    match (va, vb) {
-        (Value::Field(a), Value::Field(b)) => Ok(Value::Field(a + b)),
-        (Value::Int(a), Value::Int(b)) => {
-            Ok(Value::Field(int_to_fr(a) + int_to_fr(b)))
-        }
-        (Value::Int(n), Value::Field(f)) | (Value::Field(f), Value::Int(n)) => {
-            Ok(Value::Field(f + int_to_fr(n)))
-        }
-        (Value::Curve(a), Value::Curve(b)) => Ok(Value::Curve(a + b)),
-        (Value::Polynomial(a), Value::Polynomial(b)) => Ok(Value::Polynomial(&a + &b)),
-        (Value::SparseUVPoly(a), Value::SparseUVPoly(b)) => Ok(Value::SparseUVPoly(&a + &b)),
-        (Value::MLE(a), Value::MLE(b)) => {
-            if a.num_vars() != b.num_vars() {
-                return Err(EvalError::TypeError(format!(
-                    "add: MLE num_vars mismatch ({} vs {})", a.num_vars(), b.num_vars()
-                )));
-            }
-            Ok(Value::MLE(&a + &b))
-        }
-        (Value::MVPoly(a), Value::MVPoly(b)) => Ok(Value::MVPoly(&a + &b)),
-        (a, b) => Err(EvalError::TypeError(format!(
-            "add: incompatible types {} and {}", a.type_name(), b.type_name()
-        ))),
-    }
-}
-
-/// Generic mul for two Value operands (ring types only).
-fn value_mul(va: Value, vb: Value) -> Result<Value, EvalError> {
-    match (va, vb) {
-        (Value::Field(a), Value::Field(b)) => Ok(Value::Field(a * b)),
-        (Value::Int(a), Value::Int(b)) => {
-            Ok(Value::Field(int_to_fr(a) * int_to_fr(b)))
-        }
-        (Value::Int(n), Value::Field(f)) | (Value::Field(f), Value::Int(n)) => {
-            Ok(Value::Field(f * int_to_fr(n)))
-        }
-        (Value::Polynomial(a), Value::Polynomial(b)) => Ok(Value::Polynomial(&a * &b)),
-        (a, b) => Err(EvalError::TypeError(format!(
-            "mul: incompatible types {} and {}", a.type_name(), b.type_name()
-        ))),
-    }
-}
-
 /// Evaluate a specific node in the expression tree.
 fn eval_id(expr: &RecExpr<ArkLang>, id: Id, env: &Env) -> Result<Value, EvalError> {
     let node = &expr[id];
@@ -86,183 +41,6 @@ fn eval_id(expr: &RecExpr<ArkLang>, id: Id, env: &Env) -> Result<Value, EvalErro
             .get(s)
             .cloned()
             .ok_or_else(|| EvalError::UnboundVariable(s.to_string())),
-
-        // ── Generic Add ──
-        ArkLang::Add([a, b]) => {
-            let va = eval_id(expr, *a, env)?;
-            let vb = eval_id(expr, *b, env)?;
-            value_add(va, vb)
-        }
-
-        // ── Generic Neg ──
-        ArkLang::Neg([a]) => {
-            let va = eval_id(expr, *a, env)?;
-            match va {
-                Value::Field(f) => Ok(Value::Field(-f)),
-                Value::Int(n) => Ok(Value::Field(-int_to_fr(n))),
-                Value::Curve(p) => Ok(Value::Curve(-p)),
-                Value::Polynomial(p) => Ok(Value::Polynomial(-p)),
-                Value::SparseUVPoly(p) => {
-                    // Negate by negating all coefficients
-                    let neg_coeffs: Vec<(usize, Fr)> = p.to_vec().iter()
-                        .map(|(i, c)| (*i, -(*c)))
-                        .collect();
-                    Ok(Value::SparseUVPoly(SparseUVPolynomial::from_coefficients_vec(neg_coeffs)))
-                }
-                Value::MLE(m) => {
-                    let nv = m.num_vars();
-                    let neg_evals: Vec<Fr> = m.to_evaluations().iter().map(|v| -(*v)).collect();
-                    Ok(Value::MLE(DenseMultilinearExtension::from_evaluations_vec(nv, neg_evals)))
-                }
-                Value::MVPoly(p) => {
-                    // Negate: multiply all coefficients by -1
-                    let nv = p.num_vars();
-                    let neg_terms: Vec<(Fr, SparseTerm)> = p.terms().iter()
-                        .map(|(c, t)| (-(*c), t.clone()))
-                        .collect();
-                    Ok(Value::MVPoly(MVSparsePolynomial::from_coefficients_vec(nv, neg_terms)))
-                }
-                v => Err(EvalError::TypeError(format!(
-                    "neg: unsupported type {}", v.type_name()
-                ))),
-            }
-        }
-
-        // ── Generic Mul ──
-        ArkLang::Mul([a, b]) => {
-            let va = eval_id(expr, *a, env)?;
-            let vb = eval_id(expr, *b, env)?;
-            value_mul(va, vb)
-        }
-
-        // ── Inv (field only) ──
-        ArkLang::Inv([a]) => {
-            let va = eval_id(expr, *a, env)?.as_field()?;
-            va.inverse()
-                .map(Value::Field)
-                .ok_or(EvalError::DivisionByZero)
-        }
-
-        // ── Scale: scalar * value ──
-        ArkLang::Scale([c, a]) => {
-            let vc = eval_id(expr, *c, env)?.as_field()?;
-            let va = eval_id(expr, *a, env)?;
-            match va {
-                Value::Field(f) => Ok(Value::Field(vc * f)),
-                Value::Int(n) => Ok(Value::Field(vc * int_to_fr(n))),
-                Value::Curve(p) => Ok(Value::Curve(p * vc)),
-                Value::Polynomial(p) => Ok(Value::Polynomial(&p * vc)),
-                Value::SparseUVPoly(p) => {
-                    let scaled: Vec<(usize, Fr)> = p.to_vec().iter()
-                        .map(|(i, coeff)| (*i, *coeff * vc))
-                        .collect();
-                    Ok(Value::SparseUVPoly(SparseUVPolynomial::from_coefficients_vec(scaled)))
-                }
-                Value::MLE(m) => {
-                    let nv = m.num_vars();
-                    let scaled_evals: Vec<Fr> = m.to_evaluations().iter().map(|v| *v * vc).collect();
-                    Ok(Value::MLE(DenseMultilinearExtension::from_evaluations_vec(nv, scaled_evals)))
-                }
-                Value::MVPoly(p) => {
-                    let nv = p.num_vars();
-                    let scaled_terms: Vec<(Fr, SparseTerm)> = p.terms().iter()
-                        .map(|(c, t)| (*c * vc, t.clone()))
-                        .collect();
-                    Ok(Value::MVPoly(MVSparsePolynomial::from_coefficients_vec(nv, scaled_terms)))
-                }
-                v => Err(EvalError::TypeError(format!(
-                    "scale: unsupported target type {}", v.type_name()
-                ))),
-            }
-        }
-
-        // ── Pow (field only) ──
-        ArkLang::Pow([base, exp]) => {
-            let vb = eval_id(expr, *base, env)?.as_field()?;
-            let ve = eval_id(expr, *exp, env)?.as_int()?;
-            if ve >= 0 {
-                let mut result = Fr::from(1u64);
-                for _ in 0..ve {
-                    result *= vb;
-                }
-                Ok(Value::Field(result))
-            } else {
-                let inv = vb.inverse().ok_or(EvalError::DivisionByZero)?;
-                let mut result = Fr::from(1u64);
-                for _ in 0..(-ve) {
-                    result *= inv;
-                }
-                Ok(Value::Field(result))
-            }
-        }
-
-        // ── Eval: evaluate polynomial/MLE at a point ──
-        ArkLang::Eval([f, x]) => {
-            let vf = eval_id(expr, *f, env)?;
-            match vf {
-                Value::Polynomial(p) => {
-                    let xv = eval_id(expr, *x, env)?.as_field()?;
-                    Ok(Value::Field(p.evaluate(&xv)))
-                }
-                Value::SparseUVPoly(p) => {
-                    let xv = eval_id(expr, *x, env)?.as_field()?;
-                    Ok(Value::Field(Polynomial::evaluate(&p, &xv)))
-                }
-                Value::MLE(m) => {
-                    let arr = eval_id(expr, *x, env)?.as_array()?;
-                    let point_fr: Vec<Fr> = arr.into_iter()
-                        .map(|v| v.as_field())
-                        .collect::<Result<_, _>>()?;
-                    Ok(Value::Field(m.evaluate(&point_fr)))
-                }
-                Value::SparseMLE(m) => {
-                    let arr = eval_id(expr, *x, env)?.as_array()?;
-                    let point_fr: Vec<Fr> = arr.into_iter()
-                        .map(|v| v.as_field())
-                        .collect::<Result<_, _>>()?;
-                    Ok(Value::Field(m.evaluate(&point_fr)))
-                }
-                Value::MVPoly(p) => {
-                    let arr = eval_id(expr, *x, env)?.as_array()?;
-                    let point_fr: Vec<Fr> = arr.into_iter()
-                        .map(|v| v.as_field())
-                        .collect::<Result<_, _>>()?;
-                    Ok(Value::Field(p.evaluate(&point_fr)))
-                }
-                v => Err(EvalError::TypeError(format!(
-                    "eval: expected polynomial/MLE type, got {}", v.type_name()
-                ))),
-            }
-        }
-
-        // ── Deg ──
-        ArkLang::Deg([p]) => {
-            let vp = eval_id(expr, *p, env)?;
-            match vp {
-                Value::Polynomial(p) => Ok(Value::Int(p.degree() as i64)),
-                Value::SparseUVPoly(p) => Ok(Value::Int(p.degree() as i64)),
-                Value::MVPoly(p) => Ok(Value::Int(p.degree() as i64)),
-                Value::MLE(m) => Ok(Value::Int(m.num_vars() as i64)),
-                Value::SparseMLE(m) => Ok(Value::Int(m.num_vars() as i64)),
-                v => Err(EvalError::TypeError(format!(
-                    "deg: unsupported type {}", v.type_name()
-                ))),
-            }
-        }
-
-        // ── NVars ──
-        ArkLang::NVars([p]) => {
-            let vp = eval_id(expr, *p, env)?;
-            match vp {
-                Value::MLE(m) => Ok(Value::Int(m.num_vars() as i64)),
-                Value::SparseMLE(m) => Ok(Value::Int(m.num_vars() as i64)),
-                Value::MVPoly(p) => Ok(Value::Int(p.num_vars() as i64)),
-                Value::Polynomial(_) | Value::SparseUVPoly(_) => Ok(Value::Int(1)),
-                v => Err(EvalError::TypeError(format!(
-                    "nvars: unsupported type {}", v.type_name()
-                ))),
-            }
-        }
 
         // ── Polynomial Constructors ──
         ArkLang::PolyDUV(_) | ArkLang::PolySUV(_) | ArkLang::PolyDMLE(_)
@@ -278,8 +56,8 @@ fn eval_id(expr: &RecExpr<ArkLang>, id: Id, env: &Env) -> Result<Value, EvalErro
             Err(EvalError::TypeError("ids: cannot be evaluated standalone, use inside (poly ...)".into()))
         }
 
-        // ── Poly-Specific: PDiv, Fix ──
-        ArkLang::PDiv(_) | ArkLang::Fix(_) => {
+        // ── Poly-Specific: Fix ──
+        ArkLang::Fix(_) => {
             eval_poly_specific(expr, node, env)
         }
 
@@ -300,7 +78,7 @@ fn eval_id(expr: &RecExpr<ArkLang>, id: Id, env: &Env) -> Result<Value, EvalErro
             Ok(b.clone())
         }
 
-        // ── FFT / Domain ──
+        // ── Domain ──
         ArkLang::Domain([n]) => {
             let size = eval_id(expr, *n, env)?.as_int()? as usize;
             let domain = GeneralEvaluationDomain::<Fr>::new(size)
@@ -309,53 +87,6 @@ fn eval_id(expr: &RecExpr<ArkLang>, id: Id, env: &Env) -> Result<Value, EvalErro
                 )))?;
             let elements: Vec<Value> = domain.elements().map(Value::Field).collect();
             Ok(Value::Array(elements))
-        }
-
-        ArkLang::Fft([n, p]) => {
-            let size = eval_id(expr, *n, env)?.as_int()? as usize;
-            let domain = GeneralEvaluationDomain::<Fr>::new(size)
-                .ok_or_else(|| EvalError::TypeError(format!(
-                    "fft: cannot create evaluation domain of size {}", size
-                )))?;
-            let vp = eval_id(expr, *p, env)?;
-            let coeffs: Vec<Fr> = match vp {
-                Value::Polynomial(poly) => poly.coeffs.clone(),
-                Value::SparseUVPoly(sp) => {
-                    let deg = sp.degree();
-                    let mut dense = vec![Fr::zero(); deg + 1];
-                    for (i, c) in sp.to_vec().iter() {
-                        if *i <= deg { dense[*i] = *c; }
-                    }
-                    dense
-                }
-                Value::Array(arr) => arr.into_iter()
-                    .map(|v| v.as_field())
-                    .collect::<Result<_, _>>()?,
-                v => return Err(EvalError::TypeError(format!(
-                    "fft: expected polynomial or array, got {}", v.type_name()
-                ))),
-            };
-            let evals = domain.fft(&coeffs);
-            Ok(Value::Array(evals.into_iter().map(Value::Field).collect()))
-        }
-
-        ArkLang::Ifft([n, e]) => {
-            let size = eval_id(expr, *n, env)?.as_int()? as usize;
-            let domain = GeneralEvaluationDomain::<Fr>::new(size)
-                .ok_or_else(|| EvalError::TypeError(format!(
-                    "ifft: cannot create evaluation domain of size {}", size
-                )))?;
-            let ve = eval_id(expr, *e, env)?.as_array()?;
-            let evals: Vec<Fr> = ve.into_iter()
-                .map(|v| v.as_field())
-                .collect::<Result<_, _>>()?;
-            let coeffs = domain.ifft(&evals);
-            // Trim trailing zeros
-            let mut trimmed = coeffs;
-            while trimmed.len() > 1 && trimmed.last().map_or(false, |c| c.is_zero()) {
-                trimmed.pop();
-            }
-            Ok(Value::Polynomial(DensePolynomial::from_coefficients_vec(trimmed)))
         }
 
         // ── Indexed Sum/Product ──
@@ -384,7 +115,7 @@ fn eval_id(expr: &RecExpr<ArkLang>, id: Id, env: &Env) -> Result<Value, EvalErro
                 let val = eval_id(expr, *body, &new_env)?;
                 acc = Some(match acc {
                     None => val,
-                    Some(prev) => value_add(prev, val)?,
+                    Some(prev) => typed_add(prev.ark_type(), val.ark_type(), prev, val)?,
                 });
             }
             Ok(acc.unwrap_or(Value::Int(0)))
@@ -409,15 +140,10 @@ fn eval_id(expr: &RecExpr<ArkLang>, id: Id, env: &Env) -> Result<Value, EvalErro
                 let val = eval_id(expr, *body, &new_env)?;
                 acc = Some(match acc {
                     None => val,
-                    Some(prev) => value_mul(prev, val)?,
+                    Some(prev) => typed_mul(prev.ark_type(), val.ark_type(), prev, val)?,
                 });
             }
             Ok(acc.unwrap_or(Value::Int(1)))
-        }
-
-        // ── Conversions ──
-        ArkLang::Densify(_) | ArkLang::Sparsify(_) | ArkLang::AsUV(_) | ArkLang::AsMLE(_) => {
-            eval_conversion(expr, node, env)
         }
 
         // ── Array Operations ──
@@ -430,60 +156,9 @@ fn eval_id(expr: &RecExpr<ArkLang>, id: Id, env: &Env) -> Result<Value, EvalErro
             Ok(Value::Array(vals))
         }
 
-        ArkLang::Select([arr, idx]) => {
-            let va = eval_id(expr, *arr, env)?.as_array()?;
-            let vi = eval_id(expr, *idx, env)?.as_int()?;
-            let idx = vi as usize;
-            if idx >= va.len() {
-                return Err(EvalError::IndexOutOfBounds {
-                    index: idx,
-                    len: va.len(),
-                });
-            }
-            Ok(va[idx].clone())
-        }
-
-        ArkLang::Store([arr, idx, val]) => {
-            let mut va = eval_id(expr, *arr, env)?.as_array()?;
-            let vi = eval_id(expr, *idx, env)?.as_int()?;
-            let vv = eval_id(expr, *val, env)?;
-            let idx = vi as usize;
-            if idx >= va.len() {
-                return Err(EvalError::IndexOutOfBounds {
-                    index: idx,
-                    len: va.len(),
-                });
-            }
-            if !va.is_empty() {
-                let expected = va[0].type_name();
-                let got = vv.type_name();
-                if got != expected {
-                    return Err(EvalError::TypeMismatch {
-                        expected: expected.to_string(),
-                        got: got.to_string(),
-                    });
-                }
-            }
-            va[idx] = vv;
-            Ok(Value::Array(va))
-        }
-
         ArkLang::ALen([arr]) => {
             let va = eval_id(expr, *arr, env)?.as_array()?;
             Ok(Value::Int(va.len() as i64))
-        }
-
-        ArkLang::AAdd([a, b]) => {
-            let va = eval_id(expr, *a, env)?.as_array()?;
-            let vb = eval_id(expr, *b, env)?.as_array()?;
-            let len = va.len().max(vb.len());
-            let mut result = Vec::with_capacity(len);
-            for i in 0..len {
-                let fa = if i < va.len() { va[i].as_field()? } else { Fr::zero() };
-                let fb = if i < vb.len() { vb[i].as_field()? } else { Fr::zero() };
-                result.push(Value::Field(fa + fb));
-            }
-            Ok(Value::Array(result))
         }
 
         // ── Let Binding ──
@@ -510,13 +185,6 @@ fn eval_id(expr: &RecExpr<ArkLang>, id: Id, env: &Env) -> Result<Value, EvalErro
             } else {
                 eval_id(expr, *else_, env)
             }
-        }
-
-        // ── Comparison ──
-        ArkLang::Eq([a, b]) => {
-            let va = eval_id(expr, *a, env)?.as_field()?;
-            let vb = eval_id(expr, *b, env)?.as_field()?;
-            Ok(Value::Bool(va == vb))
         }
 
         // ── Type Tags (not directly evaluable) ──
@@ -1270,22 +938,9 @@ fn eval_poly_constructor(expr: &RecExpr<ArkLang>, node: &ArkLang, env: &Env) -> 
     }
 }
 
-/// Evaluate poly-specific operations (division, fix).
+/// Evaluate poly-specific operations (fix).
 fn eval_poly_specific(expr: &RecExpr<ArkLang>, node: &ArkLang, env: &Env) -> Result<Value, EvalError> {
     match node {
-        ArkLang::PDiv([a, b]) => {
-            let va = eval_id(expr, *a, env)?.as_polynomial()?;
-            let vb = eval_id(expr, *b, env)?.as_polynomial()?;
-            if vb.is_zero() {
-                return Err(EvalError::DivisionByZero);
-            }
-            let a_sparse = DenseOrSparsePolynomial::from(&va);
-            let b_sparse = DenseOrSparsePolynomial::from(&vb);
-            let (q, r) = a_sparse.divide_with_q_and_r(&b_sparse)
-                .ok_or(EvalError::DivisionByZero)?;
-            Ok(Value::Pair(Box::new(Value::Polynomial(q)), Box::new(Value::Polynomial(r))))
-        }
-
         ArkLang::Fix([mle, partial]) => {
             let vm = eval_id(expr, *mle, env)?.as_mle()?;
             let vp = eval_id(expr, *partial, env)?.as_array()?;
@@ -1296,119 +951,6 @@ fn eval_poly_specific(expr: &RecExpr<ArkLang>, node: &ArkLang, env: &Env) -> Res
         }
 
         _ => unreachable!("eval_poly_specific called with non-poly-specific node"),
-    }
-}
-
-/// Evaluate conversion nodes (densify, sparsify, as-uv, as-mle).
-fn eval_conversion(expr: &RecExpr<ArkLang>, node: &ArkLang, env: &Env) -> Result<Value, EvalError> {
-    match node {
-        ArkLang::Densify([x]) => {
-            let vx = eval_id(expr, *x, env)?;
-            match vx {
-                Value::SparseUVPoly(p) => {
-                    let deg = p.degree();
-                    let mut coeffs = vec![Fr::zero(); deg + 1];
-                    for (i, c) in p.to_vec().iter() {
-                        if *i <= deg {
-                            coeffs[*i] = *c;
-                        }
-                    }
-                    Ok(Value::Polynomial(DensePolynomial::from_coefficients_vec(coeffs)))
-                }
-                Value::SparseMLE(m) => {
-                    let nv = m.num_vars();
-                    let evals = m.to_evaluations();
-                    Ok(Value::MLE(DenseMultilinearExtension::from_evaluations_vec(nv, evals)))
-                }
-                v => Err(EvalError::TypeError(format!(
-                    "densify: expected sparse type, got {}", v.type_name()
-                ))),
-            }
-        }
-
-        ArkLang::Sparsify([x]) => {
-            let vx = eval_id(expr, *x, env)?;
-            match vx {
-                Value::Polynomial(p) => {
-                    let sparse_coeffs: Vec<(usize, Fr)> = p.coeffs.iter()
-                        .enumerate()
-                        .filter(|(_, c)| !c.is_zero())
-                        .map(|(i, c)| (i, *c))
-                        .collect();
-                    Ok(Value::SparseUVPoly(SparseUVPolynomial::from_coefficients_vec(sparse_coeffs)))
-                }
-                Value::MLE(m) => {
-                    let nv = m.num_vars();
-                    let sparse_evals: Vec<(usize, Fr)> = m.to_evaluations().iter()
-                        .enumerate()
-                        .filter(|(_, v)| !v.is_zero())
-                        .map(|(i, v)| (i, *v))
-                        .collect();
-                    Ok(Value::SparseMLE(SparseMultilinearExtension::from_evaluations(nv, &sparse_evals)))
-                }
-                v => Err(EvalError::TypeError(format!(
-                    "sparsify: expected dense type, got {}", v.type_name()
-                ))),
-            }
-        }
-
-        ArkLang::AsUV([x]) => {
-            let vx = eval_id(expr, *x, env)?;
-            match vx {
-                Value::MLE(m) => {
-                    if m.num_vars() != 1 {
-                        return Err(EvalError::TypeError(format!(
-                            "as-uv: MLE must have 1 variable, got {}", m.num_vars()
-                        )));
-                    }
-                    let evals = m.to_evaluations();
-                    let c0 = evals[0];
-                    let c1 = evals[1] - evals[0];
-                    Ok(Value::Polynomial(DensePolynomial::from_coefficients_vec(vec![c0, c1])))
-                }
-                Value::SparseMLE(m) => {
-                    if m.num_vars() != 1 {
-                        return Err(EvalError::TypeError(format!(
-                            "as-uv: SparseMLE must have 1 variable, got {}", m.num_vars()
-                        )));
-                    }
-                    let evals = m.to_evaluations();
-                    let c0 = evals[0];
-                    let c1 = evals[1] - evals[0];
-                    let mut terms = Vec::new();
-                    if !c0.is_zero() { terms.push((0, c0)); }
-                    if !c1.is_zero() { terms.push((1, c1)); }
-                    Ok(Value::SparseUVPoly(SparseUVPolynomial::from_coefficients_vec(terms)))
-                }
-                v => Err(EvalError::TypeError(format!(
-                    "as-uv: expected MLE type, got {}", v.type_name()
-                ))),
-            }
-        }
-
-        ArkLang::AsMLE([x]) => {
-            let vx = eval_id(expr, *x, env)?;
-            match vx {
-                Value::Polynomial(p) => {
-                    let v0 = p.evaluate(&Fr::from(0u64));
-                    let v1 = p.evaluate(&Fr::from(1u64));
-                    Ok(Value::MLE(DenseMultilinearExtension::from_evaluations_vec(1, vec![v0, v1])))
-                }
-                Value::SparseUVPoly(p) => {
-                    let v0 = Polynomial::evaluate(&p, &Fr::from(0u64));
-                    let v1 = Polynomial::evaluate(&p, &Fr::from(1u64));
-                    let mut evals = Vec::new();
-                    if !v0.is_zero() { evals.push((0, v0)); }
-                    if !v1.is_zero() { evals.push((1, v1)); }
-                    Ok(Value::SparseMLE(SparseMultilinearExtension::from_evaluations(1, &evals)))
-                }
-                v => Err(EvalError::TypeError(format!(
-                    "as-mle: expected UV polynomial type, got {}", v.type_name()
-                ))),
-            }
-        }
-
-        _ => unreachable!("eval_conversion called with non-conversion node"),
     }
 }
 
@@ -1496,28 +1038,6 @@ fn interpret_monomial(
                 Ok((f, vec![0; num_vars]))
             }
         }
-        ArkLang::Pow([base, exp]) => {
-            // base should be a variable symbol
-            let base_node = &expr[*base];
-            if let ArkLang::Symbol(s) = base_node {
-                if let Some(idx) = var_names.iter().position(|v| v == s) {
-                    let exp_val = eval_id(expr, *exp, env)?.as_int()?;
-                    if exp_val < 0 {
-                        return Err(EvalError::TypeError(
-                            format!("poly: negative exponent {} not allowed", exp_val)
-                        ));
-                    }
-                    let mut exps = vec![0usize; num_vars];
-                    exps[idx] = exp_val as usize;
-                    return Ok((Fr::one(), exps));
-                }
-            }
-            let v = eval_id(expr, id, env)?;
-            let f = v.as_field().map_err(|_| EvalError::TypeError(
-                "poly: pow expression that is not (pow <var> <exp>) must evaluate to a field element".into()
-            ))?;
-            Ok((f, vec![0; num_vars]))
-        }
         ArkLang::TPow([_t, base, exp]) => {
             let base_node = &expr[*base];
             if let ArkLang::Symbol(s) = base_node {
@@ -1539,13 +1059,6 @@ fn interpret_monomial(
             ))?;
             Ok((f, vec![0; num_vars]))
         }
-        ArkLang::Mul([a, b]) => {
-            let (ca, ea) = interpret_monomial(expr, *a, var_names, num_vars, env)?;
-            let (cb, eb) = interpret_monomial(expr, *b, var_names, num_vars, env)?;
-            let coeff = ca * cb;
-            let exps: Vec<usize> = ea.iter().zip(eb.iter()).map(|(x, y)| x + y).collect();
-            Ok((coeff, exps))
-        }
         ArkLang::TMul([_ta, _tb, a, b]) => {
             let (ca, ea) = interpret_monomial(expr, *a, var_names, num_vars, env)?;
             let (cb, eb) = interpret_monomial(expr, *b, var_names, num_vars, env)?;
@@ -1553,20 +1066,9 @@ fn interpret_monomial(
             let exps: Vec<usize> = ea.iter().zip(eb.iter()).map(|(x, y)| x + y).collect();
             Ok((coeff, exps))
         }
-        ArkLang::Neg([a]) => {
-            let (ca, ea) = interpret_monomial(expr, *a, var_names, num_vars, env)?;
-            Ok((-ca, ea))
-        }
         ArkLang::TNeg([_t, a]) => {
             let (ca, ea) = interpret_monomial(expr, *a, var_names, num_vars, env)?;
             Ok((-ca, ea))
-        }
-        ArkLang::Scale([c, m]) => {
-            let cv = eval_id(expr, *c, env)?.as_field().map_err(|_|
-                EvalError::TypeError("poly: scale coefficient must be a field element".into())
-            )?;
-            let (cm, em) = interpret_monomial(expr, *m, var_names, num_vars, env)?;
-            Ok((cv * cm, em))
         }
         ArkLang::TScale([_t, c, m]) => {
             let cv = eval_id(expr, *c, env)?.as_field().map_err(|_|

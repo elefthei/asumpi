@@ -56,7 +56,7 @@ proptest! {
         let (a, b, c) = (fr_from_u64(a_val), fr_from_u64(b_val), fr_from_u64(c_val));
         let env = env_with_fields(&[("a", a), ("b", b), ("c", c)]);
 
-        let lhs = eval_str("(mul (tmul Field Field a b) c)", &env).as_field().unwrap();
+        let lhs = eval_str("(tmul Field Field (tmul Field Field a b) c)", &env).as_field().unwrap();
         let rhs = eval_str("(tmul Field Field a (tmul Field Field b c))", &env).as_field().unwrap();
         prop_assert_eq!(lhs, rhs);
     }

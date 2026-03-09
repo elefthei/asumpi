@@ -197,7 +197,7 @@ fn main() {
         });
 
         let start = Instant::now();
-        let lhs = eval_str("(mul (tmul Field Field a b) c)", &env).unwrap().as_field().unwrap();
+        let lhs = eval_str("(tmul Field Field (tmul Field Field a b) c)", &env).unwrap().as_field().unwrap();
         let rhs = eval_str("(tmul Field Field a (tmul Field Field b c))", &env).unwrap().as_field().unwrap();
         let elapsed = start.elapsed().as_micros() as f64;
         let passed = lhs == rhs;

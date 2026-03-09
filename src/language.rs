@@ -1,31 +1,18 @@
 // arkΣΠ Language Definition
 //
-// A unified sum-of-products language with 43 nodes.
-// Generic arithmetic, indexed Σ/Π, explicit conversions.
+// A typed algebraic IR with typed arithmetic, indexed Σ/Π,
+// polynomial constructors, and explicit coercions.
 
 use egg::*;
 
 define_language! {
-    /// arkΣΠ: Unified algebraic language with generic operations.
+    /// arkΣΠ: Typed algebraic language.
     ///
-    /// All arithmetic is generic (add works on Fr, G1, Poly, etc).
+    /// All arithmetic is typed (tadd, tmul, etc. carry type tags).
     /// Indexed Σ/Π with symbolic bounded sizes for staged computation.
-    /// Explicit conversion operators for representation/domain changes.
+    /// Explicit coerce operator for representation/domain changes.
     pub enum ArkLang {
         Num(i64),
-
-        // ── Generic Arithmetic (6) ──
-        "add"   = Add([Id; 2]),
-        "neg"   = Neg([Id; 1]),
-        "mul"   = Mul([Id; 2]),
-        "inv"   = Inv([Id; 1]),
-        "scale" = Scale([Id; 2]),
-        "pow"   = Pow([Id; 2]),
-
-        // ── Evaluation & Queries (3) ──
-        "eval"  = Eval([Id; 2]),
-        "deg"   = Deg([Id; 1]),
-        "nvars" = NVars([Id; 1]),
 
         // ── Polynomial Constructors (5 + 2 symbolic) ──
         "poly:duv"  = PolyDUV(Box<[Id]>),
@@ -36,8 +23,7 @@ define_language! {
         "ids"       = Ids(Box<[Id]>),
         "poly"      = Poly(Box<[Id]>),
 
-        // ── Poly-Specific (2) ──
-        "pdiv" = PDiv([Id; 2]),
+        // ── Poly-Specific (1) ──
         "fix"  = Fix([Id; 2]),
 
         // ── Tuples (3) ──
@@ -45,35 +31,21 @@ define_language! {
         "fst"  = Fst([Id; 1]),
         "snd"  = Snd([Id; 1]),
 
-        // ── FFT / Domain (3) ──
+        // ── Domain (1) ──
         "domain" = Domain([Id; 1]),
-        "fft"    = Fft([Id; 2]),
-        "ifft"   = Ifft([Id; 2]),
 
         // ── Indexed Sum/Product (3) ──
         "bound" = Bound([Id; 2]),
         "Σ"     = Sigma([Id; 4]),
         "Π"     = Pi([Id; 4]),
 
-        // ── Conversions (4) ──
-        "densify"  = Densify([Id; 1]),
-        "sparsify" = Sparsify([Id; 1]),
-        "as-uv"    = AsUV([Id; 1]),
-        "as-mle"   = AsMLE([Id; 1]),
-
-        // ── Array (5) ──
+        // ── Array (3) ──
         "mkarray" = MkArray(Box<[Id]>),
-        "select"  = Select([Id; 2]),
-        "store"   = Store([Id; 3]),
         "alen"    = ALen([Id; 1]),
-        "aadd"    = AAdd([Id; 2]),
 
         // ── Control (2) ──
         "let" = Let([Id; 3]),
         "if"  = If([Id; 3]),
-
-        // ── Comparison (1) ──
-        "eq" = Eq([Id; 2]),
 
         // ── Type Tags (leaf nodes for explicit typing) ──
         // Must be before Symbol so the parser matches them first.
@@ -89,7 +61,7 @@ define_language! {
         "Array"      = TArray,
         "Pair"       = TPair,
 
-        // ── Typed Operations (coexist with untyped during migration) ──
+        // ── Typed Operations ──
         "coerce" = Coerce([Id; 3]),
         "tadd"   = TAdd([Id; 4]),
         "tneg"   = TNeg([Id; 2]),
@@ -139,14 +111,14 @@ mod tests {
 
     #[test]
     fn test_parse_simple() {
-        let expr: RecExpr<ArkLang> = "(add 1 2)".parse().unwrap();
-        assert_eq!(expr.as_ref().len(), 3);
+        let expr: RecExpr<ArkLang> = "(tadd Int Int 1 2)".parse().unwrap();
+        assert_eq!(expr.as_ref().len(), 5);
     }
 
     #[test]
     fn test_parse_nested() {
-        let expr: RecExpr<ArkLang> = "(mul (add x y) z)".parse().unwrap();
-        assert!(expr.as_ref().len() >= 4);
+        let expr: RecExpr<ArkLang> = "(tmul Int Int (tadd Int Int x y) z)".parse().unwrap();
+        assert!(expr.as_ref().len() >= 6);
     }
 
     #[test]
@@ -168,27 +140,27 @@ mod tests {
     #[test]
     fn test_parse_sigma() {
         let expr: RecExpr<ArkLang> =
-            "(Σ i 0 3 (select (mkarray 10 20 30) i))".parse().unwrap();
+            "(Σ i 0 3 (tselect Int (mkarray 10 20 30) i))".parse().unwrap();
         assert!(expr.as_ref().len() >= 4);
     }
 
     #[test]
     fn test_parse_let() {
         let expr: RecExpr<ArkLang> =
-            "(let x 42 (add x x))".parse().unwrap();
+            "(let x 42 (tadd Int Int x x))".parse().unwrap();
         assert!(expr.as_ref().len() >= 4);
     }
 
     #[test]
     fn test_parse_poly() {
         let expr: RecExpr<ArkLang> =
-            "(eval (poly:duv 1 2 3) 5)".parse().unwrap();
+            "(teval DensePoly (poly:duv 1 2 3) 5)".parse().unwrap();
         assert!(expr.as_ref().len() >= 5);
     }
 
     #[test]
     fn test_roundtrip_display_parse() {
-        let expr: RecExpr<ArkLang> = "(add (mul 3 x) (neg y))".parse().unwrap();
+        let expr: RecExpr<ArkLang> = "(tadd Int Int (tmul Int Int 3 x) (tneg Int y))".parse().unwrap();
         let s = expr.to_string();
         let expr2: RecExpr<ArkLang> = s.parse().unwrap();
         assert_eq!(expr, expr2);
