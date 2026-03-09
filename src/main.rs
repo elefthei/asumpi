@@ -45,16 +45,16 @@ fn main() {
 
     let field_tests = vec![
         ("add basic", "(add 3 7)", 10i64),
-        ("sub via neg", "(add 10 (neg 3))", 7),
+        ("sub via neg", "(add 10 (tneg Int 3))", 7),
         ("mul basic", "(mul 6 7)", 42),
         ("additive identity", "(add 42 0)", 42),
         ("multiplicative identity", "(mul 42 1)", 42),
         ("mul by zero", "(mul 42 0)", 0),
-        ("double negation", "(neg (neg 5))", 5),
-        ("sub self", "(add 99 (neg 99))", 0),
+        ("double negation", "(tneg Int (tneg Int 5))", 5),
+        ("sub self", "(add 99 (tneg Int 99))", 0),
         ("nested add", "(add (add 1 2) (add 3 4))", 10),
         ("distributivity", "(mul 3 (add 4 5))", 27),
-        ("power", "(pow 2 10)", 1024),
+        ("power", "(tpow Field (coerce Int Field 2) 10)", 1024),
     ];
 
     for (name, expr, expected) in &field_tests {
@@ -211,7 +211,7 @@ fn main() {
         });
 
         let start = Instant::now();
-        let r = eval_str("(add a (neg a))", &env).unwrap().as_field().unwrap();
+        let r = eval_str("(add a (tneg Field a))", &env).unwrap().as_field().unwrap();
         let elapsed = start.elapsed().as_micros() as f64;
         let passed = r.is_zero();
         println!("  additive inverse: {}", if passed { "PASS" } else { "FAIL" });
@@ -263,7 +263,7 @@ fn main() {
         });
 
         let start = Instant::now();
-        let r = eval_str("(add p (neg p))", &env).unwrap().as_curve().unwrap();
+        let r = eval_str("(add p (tneg Curve p))", &env).unwrap().as_curve().unwrap();
         let elapsed = start.elapsed().as_micros() as f64;
         let passed = r.is_zero();
         println!("  additive inverse: {}", if passed { "PASS" } else { "FAIL" });
@@ -489,7 +489,7 @@ fn main() {
     println!("\n--- Extended Polynomial Operations ---");
 
     {
-        let v = eval_str("(eval (add (poly:duv 1 2 3) (neg (poly:duv 1 2))) 2)", &empty_env()).unwrap();
+        let v = eval_str("(eval (add (poly:duv 1 2 3) (tneg DensePoly (poly:duv 1 2))) 2)", &empty_env()).unwrap();
         let passed = v == Value::Int(12);
         println!("  psub: {}", if passed { "PASS" } else { "FAIL" });
         results.push(TestResult {
@@ -502,7 +502,7 @@ fn main() {
     }
 
     {
-        let v = eval_str("(eval (add (poly:duv 1 1) (neg (poly:duv 1 1))) 7)", &empty_env()).unwrap();
+        let v = eval_str("(eval (add (poly:duv 1 1) (tneg DensePoly (poly:duv 1 1))) 7)", &empty_env()).unwrap();
         let passed = v == Value::Int(0);
         println!("  pneg: {}", if passed { "PASS" } else { "FAIL" });
         results.push(TestResult {
@@ -764,7 +764,7 @@ fn main() {
     println!("\n--- Complex Integration Tests ---");
 
     {
-        let expr_str = "(add (mul 3 x) (neg y))";
+        let expr_str = "(add (mul 3 x) (tneg Field y))";
         let expr: RecExpr<ArkLang> = expr_str.parse().unwrap();
         let displayed = expr.to_string();
         let reparsed: RecExpr<ArkLang> = displayed.parse().unwrap();
@@ -833,7 +833,7 @@ fn main() {
 
     {
         // FFT of constant poly [5]: all evals should be 5
-        let v = eval_str("(fft 4 (poly:duv 5))", &empty_env()).unwrap();
+        let v = eval_str("(tfft DensePoly 4 (poly:duv 5))", &empty_env()).unwrap();
         let arr = v.as_array().unwrap();
         let passed = arr.len() == 4 && arr.iter().all(|e| e.as_field().unwrap() == Fr::from(5u64));
         println!("  fft constant poly: {}", if passed { "PASS" } else { "FAIL" });
@@ -844,7 +844,7 @@ fn main() {
         // IFFT roundtrip: eval(ifft(fft(p)), x) == eval(p, x)
         let env = empty_env();
         let orig = eval_str("(eval (poly:duv 3 5 7) 10)", &env).unwrap().as_field().unwrap();
-        let rt = eval_str("(eval (ifft 4 (fft 4 (poly:duv 3 5 7))) 10)", &env).unwrap().as_field().unwrap();
+        let rt = eval_str("(eval (tifft Array 4 (tfft DensePoly 4 (poly:duv 3 5 7))) 10)", &env).unwrap().as_field().unwrap();
         let passed = orig == rt;
         println!("  ifft roundtrip: {}", if passed { "PASS" } else { "FAIL" });
         results.push(TestResult { category: "fft".into(), test_name: "ifft_roundtrip".into(), passed, details: "ifft(fft(p)) preserves eval".into(), time_us: 0.0 });
@@ -853,8 +853,8 @@ fn main() {
     {
         // FFT from array input
         let env = empty_env();
-        let from_poly = eval_str("(fft 4 (poly:duv 1 2 3))", &env).unwrap();
-        let from_arr = eval_str("(fft 4 (mkarray 1 2 3))", &env).unwrap();
+        let from_poly = eval_str("(tfft DensePoly 4 (poly:duv 1 2 3))", &env).unwrap();
+        let from_arr = eval_str("(tfft Array 4 (mkarray 1 2 3))", &env).unwrap();
         let passed = from_poly == from_arr;
         println!("  fft from array: {}", if passed { "PASS" } else { "FAIL" });
         results.push(TestResult { category: "fft".into(), test_name: "fft_from_array".into(), passed, details: "fft(poly) == fft(mkarray) for same coefficients".into(), time_us: 0.0 });
@@ -867,7 +867,7 @@ fn main() {
 
     {
         // Univariate: 3x² + 5x + 7 at x=2 = 29
-        let v = eval_str("(eval (poly (ids x) (mul 3 (pow x 2)) (mul 5 x) 7) 2)", &empty_env()).unwrap();
+        let v = eval_str("(eval (poly (ids x) (mul 3 (tpow Field x 2)) (mul 5 x) 7) 2)", &empty_env()).unwrap();
         let passed = v.as_field().unwrap() == Fr::from(29u64);
         println!("  poly UV basic: {}", if passed { "PASS" } else { "FAIL" });
         results.push(TestResult { category: "symbolic_poly".into(), test_name: "poly_uv_basic".into(), passed, details: "3x²+5x+7 at x=2 = 29".into(), time_us: 0.0 });
@@ -876,7 +876,7 @@ fn main() {
     {
         // Cross-check: symbolic matches poly:suv
         let env = empty_env();
-        let sym = eval_str("(eval (poly (ids x) (mul 3 (pow x 2)) (mul 5 x) 7) 10)", &env).unwrap().as_field().unwrap();
+        let sym = eval_str("(eval (poly (ids x) (mul 3 (tpow Field x 2)) (mul 5 x) 7) 10)", &env).unwrap().as_field().unwrap();
         let suv = eval_str("(eval (poly:suv 0 7 1 5 2 3) 10)", &env).unwrap().as_field().unwrap();
         let passed = sym == suv;
         println!("  poly UV matches poly:suv: {}", if passed { "PASS" } else { "FAIL" });
@@ -885,7 +885,7 @@ fn main() {
 
     {
         // Multivariate: x² + y³ + 4 at (3, 2) = 21
-        let v = eval_str("(eval (poly (ids x y) (pow x 2) (pow y 3) 4) (mkarray 3 2))", &empty_env()).unwrap();
+        let v = eval_str("(eval (poly (ids x y) (tpow Field x 2) (tpow Field y 3) 4) (mkarray 3 2))", &empty_env()).unwrap();
         let passed = v.as_field().unwrap() == Fr::from(21u64);
         println!("  poly MV: {}", if passed { "PASS" } else { "FAIL" });
         results.push(TestResult { category: "symbolic_poly".into(), test_name: "poly_mv_basic".into(), passed, details: "x²+y³+4 at (3,2) = 21".into(), time_us: 0.0 });

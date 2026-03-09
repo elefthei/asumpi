@@ -94,7 +94,7 @@ proptest! {
         let a = fr_from_u64(a_val);
         let env = env_with_fields(&[("a", a)]);
 
-        let r = eval_str("(add a (neg a))", &env).as_field().unwrap();
+        let r = eval_str("(add a (tneg Field a))", &env).as_field().unwrap();
         prop_assert!(r.is_zero());
     }
 
@@ -112,7 +112,7 @@ proptest! {
         let a = fr_from_u64(a_val);
         let env = env_with_fields(&[("a", a)]);
 
-        let r = eval_str("(neg (neg a))", &env).as_field().unwrap();
+        let r = eval_str("(tneg Field (tneg Field a))", &env).as_field().unwrap();
         prop_assert_eq!(r, a);
     }
 
@@ -122,7 +122,7 @@ proptest! {
         let env = env_with_fields(&[("a", a), ("b", b)]);
 
         // a - b = a + (-b)
-        let r = eval_str("(add a (neg b))", &env).as_field().unwrap();
+        let r = eval_str("(add a (tneg Field b))", &env).as_field().unwrap();
         prop_assert_eq!(r, a - b);
     }
 
@@ -164,7 +164,7 @@ proptest! {
         let mut env: Env = HashMap::new();
         env.insert("p".into(), Value::Curve(p));
 
-        let r = eval_str("(add p (neg p))", &env).as_curve().unwrap();
+        let r = eval_str("(add p (tneg Curve p))", &env).as_curve().unwrap();
         prop_assert!(r.is_zero());
     }
 
@@ -357,7 +357,7 @@ proptest! {
             ("c0", fr_from_u64(c0)), ("c1", fr_from_u64(c1)), ("c2", fr_from_u64(c2)),
             ("x", fr_from_u64(x)),
         ]);
-        let r = eval_str("(eval (add (poly:duv c0 c1 c2) (neg (poly:duv c0 c1 c2))) x)", &env).as_field().unwrap();
+        let r = eval_str("(eval (add (poly:duv c0 c1 c2) (tneg DensePoly (poly:duv c0 c1 c2))) x)", &env).as_field().unwrap();
         prop_assert!(r.is_zero());
     }
 
@@ -366,7 +366,7 @@ proptest! {
         let env = env_with_fields(&[
             ("c0", fr_from_u64(c0)), ("c1", fr_from_u64(c1)), ("x", fr_from_u64(x)),
         ]);
-        let r = eval_str("(eval (add (poly:duv c0 c1) (neg (poly:duv c0 c1))) x)", &env).as_field().unwrap();
+        let r = eval_str("(eval (add (poly:duv c0 c1) (tneg DensePoly (poly:duv c0 c1))) x)", &env).as_field().unwrap();
         prop_assert!(r.is_zero());
     }
 

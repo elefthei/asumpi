@@ -1498,7 +1498,6 @@ fn interpret_monomial(
             let base_node = &expr[*base];
             if let ArkLang::Symbol(s) = base_node {
                 if let Some(idx) = var_names.iter().position(|v| v == s) {
-                    // Evaluate exponent normally (supports expressions)
                     let exp_val = eval_id(expr, *exp, env)?.as_int()?;
                     if exp_val < 0 {
                         return Err(EvalError::TypeError(
@@ -1510,10 +1509,30 @@ fn interpret_monomial(
                     return Ok((Fr::one(), exps));
                 }
             }
-            // If base is not a simple variable, fall through to normal eval
             let v = eval_id(expr, id, env)?;
             let f = v.as_field().map_err(|_| EvalError::TypeError(
                 "poly: pow expression that is not (pow <var> <exp>) must evaluate to a field element".into()
+            ))?;
+            Ok((f, vec![0; num_vars]))
+        }
+        ArkLang::TPow([_t, base, exp]) => {
+            let base_node = &expr[*base];
+            if let ArkLang::Symbol(s) = base_node {
+                if let Some(idx) = var_names.iter().position(|v| v == s) {
+                    let exp_val = eval_id(expr, *exp, env)?.as_int()?;
+                    if exp_val < 0 {
+                        return Err(EvalError::TypeError(
+                            format!("poly: negative exponent {} not allowed", exp_val)
+                        ));
+                    }
+                    let mut exps = vec![0usize; num_vars];
+                    exps[idx] = exp_val as usize;
+                    return Ok((Fr::one(), exps));
+                }
+            }
+            let v = eval_id(expr, id, env)?;
+            let f = v.as_field().map_err(|_| EvalError::TypeError(
+                "poly: tpow expression that is not (tpow T <var> <exp>) must evaluate to a field element".into()
             ))?;
             Ok((f, vec![0; num_vars]))
         }
@@ -1524,12 +1543,29 @@ fn interpret_monomial(
             let exps: Vec<usize> = ea.iter().zip(eb.iter()).map(|(x, y)| x + y).collect();
             Ok((coeff, exps))
         }
+        ArkLang::TMul([_ta, _tb, a, b]) => {
+            let (ca, ea) = interpret_monomial(expr, *a, var_names, num_vars, env)?;
+            let (cb, eb) = interpret_monomial(expr, *b, var_names, num_vars, env)?;
+            let coeff = ca * cb;
+            let exps: Vec<usize> = ea.iter().zip(eb.iter()).map(|(x, y)| x + y).collect();
+            Ok((coeff, exps))
+        }
         ArkLang::Neg([a]) => {
             let (ca, ea) = interpret_monomial(expr, *a, var_names, num_vars, env)?;
             Ok((-ca, ea))
         }
+        ArkLang::TNeg([_t, a]) => {
+            let (ca, ea) = interpret_monomial(expr, *a, var_names, num_vars, env)?;
+            Ok((-ca, ea))
+        }
         ArkLang::Scale([c, m]) => {
-            // c is a scalar coefficient, m is a monomial
+            let cv = eval_id(expr, *c, env)?.as_field().map_err(|_|
+                EvalError::TypeError("poly: scale coefficient must be a field element".into())
+            )?;
+            let (cm, em) = interpret_monomial(expr, *m, var_names, num_vars, env)?;
+            Ok((cv * cm, em))
+        }
+        ArkLang::TScale([_t, c, m]) => {
             let cv = eval_id(expr, *c, env)?.as_field().map_err(|_|
                 EvalError::TypeError("poly: scale coefficient must be a field element".into())
             )?;
@@ -1621,7 +1657,7 @@ mod tests {
 
     #[test]
     fn test_field_sub() {
-        let v = eval_str("(add 10 (neg 3))", &empty_env()).unwrap();
+        let v = eval_str("(add 10 (tneg Int 3))", &empty_env()).unwrap();
         assert_eq!(v, Value::Int(7));
     }
 
@@ -1633,7 +1669,7 @@ mod tests {
 
     #[test]
     fn test_field_neg() {
-        let v = eval_str("(add 5 (neg 5))", &empty_env()).unwrap();
+        let v = eval_str("(add 5 (tneg Int 5))", &empty_env()).unwrap();
         assert_eq!(v, Value::Int(0));
     }
 
@@ -1658,7 +1694,7 @@ mod tests {
 
     #[test]
     fn test_field_pow() {
-        let v = eval_str("(pow 2 10)", &empty_env()).unwrap();
+        let v = eval_str("(tpow Field (coerce Int Field 2) 10)", &empty_env()).unwrap();
         assert_eq!(v, Value::Int(1024));
     }
 
@@ -1741,7 +1777,7 @@ mod tests {
         let mut env = empty_env();
         env.insert("p".into(), Value::Curve(p));
 
-        let result = eval_str("(add p (neg p))", &env).unwrap().as_curve().unwrap();
+        let result = eval_str("(add p (tneg Curve p))", &env).unwrap().as_curve().unwrap();
         assert!(result.is_zero());
     }
 
@@ -1823,13 +1859,13 @@ mod tests {
 
     #[test]
     fn test_poly_sub() {
-        let v = eval_str("(eval (add (poly:duv 1 2 3) (neg (poly:duv 1 2))) 2)", &empty_env()).unwrap();
+        let v = eval_str("(eval (add (poly:duv 1 2 3) (tneg DensePoly (poly:duv 1 2))) 2)", &empty_env()).unwrap();
         assert_eq!(v, Value::Int(12));
     }
 
     #[test]
     fn test_poly_neg() {
-        let v = eval_str("(eval (add (poly:duv 1 1) (neg (poly:duv 1 1))) 7)", &empty_env()).unwrap();
+        let v = eval_str("(eval (add (poly:duv 1 1) (tneg DensePoly (poly:duv 1 1))) 7)", &empty_env()).unwrap();
         assert_eq!(v, Value::Int(0));
     }
 
@@ -1981,7 +2017,7 @@ mod tests {
     #[test]
     fn test_nested_field_expression() {
         // (3 + 4) * (5 - 2) = 7 * 3 = 21
-        let v = eval_str("(mul (add 3 4) (add 5 (neg 2)))", &empty_env()).unwrap();
+        let v = eval_str("(mul (add 3 4) (add 5 (tneg Int 2)))", &empty_env()).unwrap();
         assert_eq!(v, Value::Int(21));
     }
 
@@ -2195,7 +2231,7 @@ mod tests {
     fn test_fft_known_poly() {
         // FFT of constant polynomial [5] over domain size 4
         // All evaluations should be 5
-        let v = eval_str("(fft 4 (poly:duv 5))", &empty_env()).unwrap();
+        let v = eval_str("(tfft DensePoly 4 (poly:duv 5))", &empty_env()).unwrap();
         let arr = v.as_array().unwrap();
         assert_eq!(arr.len(), 4);
         for elem in &arr {
@@ -2208,7 +2244,7 @@ mod tests {
         // FFT of p(x) = 1 + 2x over domain of size 4
         // Evaluations at [1, ω, ω², ω³] = [1+2·1, 1+2ω, 1+2ω², 1+2ω³]
         let env = empty_env();
-        let evals = eval_str("(fft 4 (poly:duv 1 2))", &env).unwrap().as_array().unwrap();
+        let evals = eval_str("(tfft DensePoly 4 (poly:duv 1 2))", &env).unwrap().as_array().unwrap();
         let domain_pts = eval_str("(domain 4)", &env).unwrap().as_array().unwrap();
         for i in 0..4 {
             let omega_i = domain_pts[i].as_field().unwrap();
@@ -2222,7 +2258,7 @@ mod tests {
         // ifft(fft(p)) should recover p
         let env = empty_env();
         let original = eval_str("(eval (poly:duv 3 5 7) 42)", &env).unwrap().as_field().unwrap();
-        let recovered = eval_str("(eval (ifft 4 (fft 4 (poly:duv 3 5 7))) 42)", &env).unwrap().as_field().unwrap();
+        let recovered = eval_str("(eval (tifft Array 4 (tfft DensePoly 4 (poly:duv 3 5 7))) 42)", &env).unwrap().as_field().unwrap();
         assert_eq!(original, recovered);
     }
 
@@ -2230,8 +2266,8 @@ mod tests {
     fn test_fft_from_array() {
         // FFT should accept Array[Field] as raw coefficients
         let env = empty_env();
-        let from_poly = eval_str("(fft 4 (poly:duv 1 2 3))", &env).unwrap();
-        let from_arr = eval_str("(fft 4 (mkarray 1 2 3))", &env).unwrap();
+        let from_poly = eval_str("(tfft DensePoly 4 (poly:duv 1 2 3))", &env).unwrap();
+        let from_arr = eval_str("(tfft Array 4 (mkarray 1 2 3))", &env).unwrap();
         assert_eq!(from_poly, from_arr);
     }
 
@@ -2239,8 +2275,8 @@ mod tests {
     fn test_fft_from_sparse() {
         // FFT should accept SparseUVPoly
         let env = empty_env();
-        let from_dense = eval_str("(fft 4 (poly:duv 5 0 3))", &env).unwrap();
-        let from_sparse = eval_str("(fft 4 (poly:suv 0 5 2 3))", &env).unwrap();
+        let from_dense = eval_str("(tfft DensePoly 4 (poly:duv 5 0 3))", &env).unwrap();
+        let from_sparse = eval_str("(tfft SparsePoly 4 (poly:suv 0 5 2 3))", &env).unwrap();
         assert_eq!(from_dense, from_sparse);
     }
 
@@ -2248,7 +2284,7 @@ mod tests {
     fn test_fft_eval_matches_point_eval() {
         // FFT evaluations should match point-by-point eval at domain elements
         let env = empty_env();
-        let evals = eval_str("(fft 8 (poly:duv 1 2 3 4))", &env).unwrap().as_array().unwrap();
+        let evals = eval_str("(tfft DensePoly 8 (poly:duv 1 2 3 4))", &env).unwrap().as_array().unwrap();
         let domain_pts = eval_str("(domain 8)", &env).unwrap().as_array().unwrap();
         for i in 0..8 {
             let pt = domain_pts[i].as_field().unwrap();
@@ -2263,18 +2299,18 @@ mod tests {
 
     #[test]
     fn test_poly_univariate_basic() {
-        // (poly (ids x) (mul 3 (pow x 2)) (mul 5 x) 7) = 3x² + 5x + 7
+        // (poly (ids x) (mul 3 (tpow Field x 2)) (mul 5 x) 7) = 3x² + 5x + 7
         let env = empty_env();
-        let v = eval_str("(eval (poly (ids x) (mul 3 (pow x 2)) (mul 5 x) 7) 2)", &env).unwrap();
+        let v = eval_str("(eval (poly (ids x) (mul 3 (tpow Field x 2)) (mul 5 x) 7) 2)", &env).unwrap();
         // 3*4 + 5*2 + 7 = 12 + 10 + 7 = 29
         assert_eq!(v.as_field().unwrap(), Fr::from(29u64));
     }
 
     #[test]
     fn test_poly_univariate_matches_suv() {
-        // (poly (ids x) (mul 3 (pow x 2)) (mul 5 x) 7) should match (poly:suv 0 7 1 5 2 3)
+        // (poly (ids x) (mul 3 (tpow Field x 2)) (mul 5 x) 7) should match (poly:suv 0 7 1 5 2 3)
         let env = empty_env();
-        let from_sym = eval_str("(eval (poly (ids x) (mul 3 (pow x 2)) (mul 5 x) 7) 10)", &env).unwrap();
+        let from_sym = eval_str("(eval (poly (ids x) (mul 3 (tpow Field x 2)) (mul 5 x) 7) 10)", &env).unwrap();
         let from_suv = eval_str("(eval (poly:suv 0 7 1 5 2 3) 10)", &env).unwrap();
         assert_eq!(from_sym.as_field().unwrap(), from_suv.as_field().unwrap());
     }
@@ -2297,9 +2333,9 @@ mod tests {
 
     #[test]
     fn test_poly_negative_coeff() {
-        // (poly (ids x) (neg (pow x 2)) x) = -x² + x
+        // (poly (ids x) (tneg Field (tpow Field x 2)) x) = -x² + x
         let env = empty_env();
-        let v = eval_str("(eval (poly (ids x) (neg (pow x 2)) x) 3)", &env).unwrap();
+        let v = eval_str("(eval (poly (ids x) (tneg Field (tpow Field x 2)) x) 3)", &env).unwrap();
         // -9 + 3 = -6 in the field
         let expected = -Fr::from(9u64) + Fr::from(3u64);
         assert_eq!(v.as_field().unwrap(), expected);
@@ -2307,10 +2343,10 @@ mod tests {
 
     #[test]
     fn test_poly_multivariate() {
-        // (poly (ids x y) (pow x 2) (pow y 3) 4) = x² + y³ + 4
+        // (poly (ids x y) (tpow Field x 2) (tpow Field y 3) 4) = x² + y³ + 4
         let env = empty_env();
         let v = eval_str(
-            "(eval (poly (ids x y) (pow x 2) (pow y 3) 4) (mkarray 3 2))",
+            "(eval (poly (ids x y) (tpow Field x 2) (tpow Field y 3) 4) (mkarray 3 2))",
             &env,
         ).unwrap();
         // 9 + 8 + 4 = 21
@@ -2331,20 +2367,20 @@ mod tests {
 
     #[test]
     fn test_poly_env_exponent() {
-        // (poly (ids x) (pow x n)) where n comes from environment
+        // (poly (ids x) (tpow Field x n)) where n comes from environment
         let mut env = empty_env();
         env.insert("n".into(), Value::Int(3));
-        let v = eval_str("(eval (poly (ids x) (pow x n)) 2)", &env).unwrap();
+        let v = eval_str("(eval (poly (ids x) (tpow Field x n)) 2)", &env).unwrap();
         // 2³ = 8
         assert_eq!(v.as_field().unwrap(), Fr::from(8u64));
     }
 
     #[test]
     fn test_poly_env_coefficient() {
-        // (poly (ids x) (mul c (pow x 2))) where c comes from environment
+        // (poly (ids x) (mul c (tpow Field x 2))) where c comes from environment
         let mut env = empty_env();
         env.insert("c".into(), Value::Field(Fr::from(7u64)));
-        let v = eval_str("(eval (poly (ids x) (mul c (pow x 2))) 3)", &env).unwrap();
+        let v = eval_str("(eval (poly (ids x) (mul c (tpow Field x 2))) 3)", &env).unwrap();
         // 7*9 = 63
         assert_eq!(v.as_field().unwrap(), Fr::from(63u64));
     }

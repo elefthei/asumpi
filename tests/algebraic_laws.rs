@@ -62,7 +62,7 @@ proptest! {
     #[test]
     fn rule_add_neg_field(a_val in any::<u64>()) {
         let env = env_with_fields(&[("a", fr(a_val))]);
-        let lhs = eval_str("(add a (neg a))", &env).as_field().unwrap();
+        let lhs = eval_str("(add a (tneg Field a))", &env).as_field().unwrap();
         prop_assert!(lhs.is_zero());
     }
 
@@ -70,7 +70,7 @@ proptest! {
     #[test]
     fn rule_neg_as_scale_field(a_val in any::<u64>()) {
         let env = env_with_fields(&[("a", fr(a_val))]);
-        let lhs = eval_str("(neg a)", &env).as_field().unwrap();
+        let lhs = eval_str("(tneg Field a)", &env).as_field().unwrap();
         let rhs = eval_str("(scale -1 a)", &env).as_field().unwrap();
         prop_assert_eq!(lhs, rhs);
     }
@@ -79,7 +79,7 @@ proptest! {
     #[test]
     fn rule_neg_as_scale_poly(c0 in any::<u64>(), c1 in any::<u64>(), x in any::<u64>()) {
         let env = env_with_fields(&[("c0", fr(c0)), ("c1", fr(c1)), ("x", fr(x))]);
-        let lhs = eval_str("(eval (neg (poly:duv c0 c1)) x)", &env).as_field().unwrap();
+        let lhs = eval_str("(eval (tneg DensePoly (poly:duv c0 c1)) x)", &env).as_field().unwrap();
         let rhs = eval_str("(eval (scale -1 (poly:duv c0 c1)) x)", &env).as_field().unwrap();
         prop_assert_eq!(lhs, rhs);
     }
@@ -113,8 +113,8 @@ proptest! {
     #[test]
     fn rule_eval_neg(c0 in any::<u64>(), c1 in any::<u64>(), x in any::<u64>()) {
         let env = env_with_fields(&[("c0", fr(c0)), ("c1", fr(c1)), ("x", fr(x))]);
-        let lhs = eval_str("(eval (neg (poly:duv c0 c1)) x)", &env).as_field().unwrap();
-        let rhs = eval_str("(neg (eval (poly:duv c0 c1) x))", &env).as_field().unwrap();
+        let lhs = eval_str("(eval (tneg DensePoly (poly:duv c0 c1)) x)", &env).as_field().unwrap();
+        let rhs = eval_str("(tneg Field (eval (poly:duv c0 c1) x))", &env).as_field().unwrap();
         prop_assert_eq!(lhs, rhs);
     }
 
@@ -340,7 +340,7 @@ proptest! {
         let env = env_with_fields(&[("a", fr(a)), ("b", fr(b)), ("c", fr(c))]);
         // Expression that multiple rules can transform:
         // scale(c, add(a, b)) can be distributed, reordered, etc.
-        let expr = "(add (scale c (add a b)) (neg (mul a b)))";
+        let expr = "(add (scale c (add a b)) (tneg Field (mul a b)))";
         let original = eval_str(expr, &env);
         let optimized = optimize_and_eval(expr, &env);
         prop_assert_eq!(original, optimized);
@@ -459,8 +459,8 @@ proptest! {
     #[test]
     fn pow_additive(a_val in 1u64..1000, m in 0i64..5, n in 0i64..5) {
         let env = env_with_fields(&[("a", fr(a_val))]);
-        let lhs_expr = format!("(mul (pow a {}) (pow a {}))", m, n);
-        let rhs_expr = format!("(pow a {})", m + n);
+        let lhs_expr = format!("(mul (tpow Field a {}) (tpow Field a {}))", m, n);
+        let rhs_expr = format!("(tpow Field a {})", m + n);
         let lhs = eval_str(&lhs_expr, &env).as_field().unwrap();
         let rhs = eval_str(&rhs_expr, &env).as_field().unwrap();
         prop_assert_eq!(lhs, rhs);
@@ -518,7 +518,7 @@ proptest! {
     fn fft_ifft_roundtrip(c0 in any::<u64>(), c1 in any::<u64>(), c2 in any::<u64>(), x in any::<u64>()) {
         let env = env_with_fields(&[("c0", fr(c0)), ("c1", fr(c1)), ("c2", fr(c2)), ("x", fr(x))]);
         let original = eval_str("(eval (poly:duv c0 c1 c2) x)", &env).as_field().unwrap();
-        let roundtripped = eval_str("(eval (ifft 4 (fft 4 (poly:duv c0 c1 c2))) x)", &env).as_field().unwrap();
+        let roundtripped = eval_str("(eval (tifft Array 4 (tfft DensePoly 4 (poly:duv c0 c1 c2))) x)", &env).as_field().unwrap();
         prop_assert_eq!(original, roundtripped);
     }
 
@@ -527,7 +527,7 @@ proptest! {
     fn fft_matches_point_eval(c0 in any::<u64>(), c1 in any::<u64>()) {
         let env = env_with_fields(&[("c0", fr(c0)), ("c1", fr(c1))]);
         // FFT of linear poly c0 + c1*x at domain size 4
-        let evals = eval_str("(fft 4 (poly:duv c0 c1))", &env).as_array().unwrap();
+        let evals = eval_str("(tfft DensePoly 4 (poly:duv c0 c1))", &env).as_array().unwrap();
         let domain_pts = eval_str("(domain 4)", &env).as_array().unwrap();
         for i in 0..4 {
             let omega_i = domain_pts[i].as_field().unwrap();
@@ -541,7 +541,7 @@ proptest! {
     fn optimizer_fft_roundtrip(c0 in any::<u64>(), c1 in any::<u64>(), x in any::<u64>()) {
         let env = env_with_fields(&[("c0", fr(c0)), ("c1", fr(c1)), ("x", fr(x))]);
         let original = eval_str("(eval (poly:duv c0 c1) x)", &env).as_field().unwrap();
-        let optimized = optimize_and_eval("(eval (ifft 4 (fft 4 (poly:duv c0 c1))) x)", &env).as_field().unwrap();
+        let optimized = optimize_and_eval("(eval (tifft Array 4 (tfft DensePoly 4 (poly:duv c0 c1))) x)", &env).as_field().unwrap();
         prop_assert_eq!(original, optimized);
     }
 
