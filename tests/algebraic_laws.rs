@@ -45,8 +45,8 @@ proptest! {
     #[test]
     fn rule_scale_one_poly(c0 in any::<u64>(), c1 in any::<u64>(), x in any::<u64>()) {
         let env = env_with_fields(&[("c0", fr(c0)), ("c1", fr(c1)), ("x", fr(x))]);
-        let lhs = eval_str("(eval (tscale DensePoly 1 (poly:duv c0 c1)) x)", &env).as_field().unwrap();
-        let rhs = eval_str("(eval (poly:duv c0 c1) x)", &env).as_field().unwrap();
+        let lhs = eval_str("(teval DensePoly (tscale DensePoly 1 (poly:duv c0 c1)) x)", &env).as_field().unwrap();
+        let rhs = eval_str("(teval DensePoly (poly:duv c0 c1) x)", &env).as_field().unwrap();
         prop_assert_eq!(lhs, rhs);
     }
 
@@ -79,8 +79,8 @@ proptest! {
     #[test]
     fn rule_neg_as_scale_poly(c0 in any::<u64>(), c1 in any::<u64>(), x in any::<u64>()) {
         let env = env_with_fields(&[("c0", fr(c0)), ("c1", fr(c1)), ("x", fr(x))]);
-        let lhs = eval_str("(eval (tneg DensePoly (poly:duv c0 c1)) x)", &env).as_field().unwrap();
-        let rhs = eval_str("(eval (tscale DensePoly -1 (poly:duv c0 c1)) x)", &env).as_field().unwrap();
+        let lhs = eval_str("(teval DensePoly (tneg DensePoly (poly:duv c0 c1)) x)", &env).as_field().unwrap();
+        let rhs = eval_str("(teval DensePoly (tscale DensePoly -1 (poly:duv c0 c1)) x)", &env).as_field().unwrap();
         prop_assert_eq!(lhs, rhs);
     }
 }
@@ -104,8 +104,8 @@ proptest! {
             ("b0", fr(b0)), ("b1", fr(b1)),
             ("x", fr(x)),
         ]);
-        let lhs = eval_str("(eval (tadd DensePoly DensePoly (poly:duv a0 a1) (poly:duv b0 b1)) x)", &env).as_field().unwrap();
-        let rhs = eval_str("(tadd Field Field (eval (poly:duv a0 a1) x) (eval (poly:duv b0 b1) x))", &env).as_field().unwrap();
+        let lhs = eval_str("(teval DensePoly (tadd DensePoly DensePoly (poly:duv a0 a1) (poly:duv b0 b1)) x)", &env).as_field().unwrap();
+        let rhs = eval_str("(tadd Field Field (teval DensePoly (poly:duv a0 a1) x) (teval DensePoly (poly:duv b0 b1) x))", &env).as_field().unwrap();
         prop_assert_eq!(lhs, rhs);
     }
 
@@ -113,8 +113,8 @@ proptest! {
     #[test]
     fn rule_eval_neg(c0 in any::<u64>(), c1 in any::<u64>(), x in any::<u64>()) {
         let env = env_with_fields(&[("c0", fr(c0)), ("c1", fr(c1)), ("x", fr(x))]);
-        let lhs = eval_str("(eval (tneg DensePoly (poly:duv c0 c1)) x)", &env).as_field().unwrap();
-        let rhs = eval_str("(tneg Field (eval (poly:duv c0 c1) x))", &env).as_field().unwrap();
+        let lhs = eval_str("(teval DensePoly (tneg DensePoly (poly:duv c0 c1)) x)", &env).as_field().unwrap();
+        let rhs = eval_str("(tneg Field (teval DensePoly (poly:duv c0 c1) x))", &env).as_field().unwrap();
         prop_assert_eq!(lhs, rhs);
     }
 
@@ -122,8 +122,8 @@ proptest! {
     #[test]
     fn rule_eval_scale(c in any::<u64>(), c0 in any::<u64>(), c1 in any::<u64>(), x in any::<u64>()) {
         let env = env_with_fields(&[("c", fr(c)), ("c0", fr(c0)), ("c1", fr(c1)), ("x", fr(x))]);
-        let lhs = eval_str("(eval (tscale DensePoly c (poly:duv c0 c1)) x)", &env).as_field().unwrap();
-        let rhs = eval_str("(tmul Field Field c (eval (poly:duv c0 c1) x))", &env).as_field().unwrap();
+        let lhs = eval_str("(teval DensePoly (tscale DensePoly c (poly:duv c0 c1)) x)", &env).as_field().unwrap();
+        let rhs = eval_str("(tmul Field Field c (teval DensePoly (poly:duv c0 c1) x))", &env).as_field().unwrap();
         prop_assert_eq!(lhs, rhs);
     }
 
@@ -139,8 +139,8 @@ proptest! {
             ("b0", fr(b0)), ("b1", fr(b1)),
             ("x", fr(x)),
         ]);
-        let lhs = eval_str("(eval (tmul DensePoly DensePoly (poly:duv a0 a1) (poly:duv b0 b1)) x)", &env).as_field().unwrap();
-        let rhs = eval_str("(tmul Field Field (eval (poly:duv a0 a1) x) (eval (poly:duv b0 b1) x))", &env).as_field().unwrap();
+        let lhs = eval_str("(teval DensePoly (tmul DensePoly DensePoly (poly:duv a0 a1) (poly:duv b0 b1)) x)", &env).as_field().unwrap();
+        let rhs = eval_str("(tmul Field Field (teval DensePoly (poly:duv a0 a1) x) (teval DensePoly (poly:duv b0 b1) x))", &env).as_field().unwrap();
         prop_assert_eq!(lhs, rhs);
     }
 }
@@ -282,8 +282,8 @@ proptest! {
     #[test]
     fn rule_densify_sparsify(c0 in any::<u64>(), c1 in any::<u64>(), c2 in any::<u64>(), x in any::<u64>()) {
         let env = env_with_fields(&[("c0", fr(c0)), ("c1", fr(c1)), ("c2", fr(c2)), ("x", fr(x))]);
-        let lhs = eval_str("(eval (coerce SparsePoly DensePoly (coerce DensePoly SparsePoly (poly:duv c0 c1 c2))) x)", &env).as_field().unwrap();
-        let rhs = eval_str("(eval (poly:duv c0 c1 c2) x)", &env).as_field().unwrap();
+        let lhs = eval_str("(teval DensePoly (coerce SparsePoly DensePoly (coerce DensePoly SparsePoly (poly:duv c0 c1 c2))) x)", &env).as_field().unwrap();
+        let rhs = eval_str("(teval DensePoly (poly:duv c0 c1 c2) x)", &env).as_field().unwrap();
         prop_assert_eq!(lhs, rhs);
     }
 
@@ -292,8 +292,8 @@ proptest! {
     fn rule_sparsify_densify(c0 in any::<u64>(), c2 in any::<u64>(), x in any::<u64>()) {
         let env = env_with_fields(&[("c0", fr(c0)), ("c2", fr(c2)), ("x", fr(x))]);
         // poly:suv with term (0, c0) and (2, c2)
-        let lhs = eval_str("(eval (coerce DensePoly SparsePoly (coerce SparsePoly DensePoly (poly:suv 0 c0 2 c2))) x)", &env).as_field().unwrap();
-        let rhs = eval_str("(eval (poly:suv 0 c0 2 c2) x)", &env).as_field().unwrap();
+        let lhs = eval_str("(teval SparsePoly (coerce DensePoly SparsePoly (coerce SparsePoly DensePoly (poly:suv 0 c0 2 c2))) x)", &env).as_field().unwrap();
+        let rhs = eval_str("(teval SparsePoly (poly:suv 0 c0 2 c2) x)", &env).as_field().unwrap();
         prop_assert_eq!(lhs, rhs);
     }
 
@@ -301,8 +301,8 @@ proptest! {
     #[test]
     fn rule_as_uv_as_mle(c0 in any::<u64>(), c1 in any::<u64>(), x in any::<u64>()) {
         let env = env_with_fields(&[("c0", fr(c0)), ("c1", fr(c1)), ("x", fr(x))]);
-        let lhs = eval_str("(eval (coerce DenseMLE DensePoly (coerce DensePoly DenseMLE (poly:duv c0 c1))) x)", &env).as_field().unwrap();
-        let rhs = eval_str("(eval (poly:duv c0 c1) x)", &env).as_field().unwrap();
+        let lhs = eval_str("(teval DensePoly (coerce DenseMLE DensePoly (coerce DensePoly DenseMLE (poly:duv c0 c1))) x)", &env).as_field().unwrap();
+        let rhs = eval_str("(teval DensePoly (poly:duv c0 c1) x)", &env).as_field().unwrap();
         prop_assert_eq!(lhs, rhs);
     }
 
@@ -312,17 +312,17 @@ proptest! {
         let env = env_with_fields(&[("v0", fr(v0)), ("v1", fr(v1))]);
         // Evaluate MLE at (0) and (1) — should recover original values
         let lhs_0 = eval_str(
-            "(eval (coerce DensePoly DenseMLE (coerce DenseMLE DensePoly (poly:dmle 1 (mkarray v0 v1)))) (mkarray 0))",
+            "(teval DenseMLE (coerce DensePoly DenseMLE (coerce DenseMLE DensePoly (poly:dmle 1 (mkarray v0 v1)))) (mkarray 0))",
             &env,
         ).as_field().unwrap();
-        let rhs_0 = eval_str("(eval (poly:dmle 1 (mkarray v0 v1)) (mkarray 0))", &env).as_field().unwrap();
+        let rhs_0 = eval_str("(teval DenseMLE (poly:dmle 1 (mkarray v0 v1)) (mkarray 0))", &env).as_field().unwrap();
         prop_assert_eq!(lhs_0, rhs_0);
 
         let lhs_1 = eval_str(
-            "(eval (coerce DensePoly DenseMLE (coerce DenseMLE DensePoly (poly:dmle 1 (mkarray v0 v1)))) (mkarray 1))",
+            "(teval DenseMLE (coerce DensePoly DenseMLE (coerce DenseMLE DensePoly (poly:dmle 1 (mkarray v0 v1)))) (mkarray 1))",
             &env,
         ).as_field().unwrap();
-        let rhs_1 = eval_str("(eval (poly:dmle 1 (mkarray v0 v1)) (mkarray 1))", &env).as_field().unwrap();
+        let rhs_1 = eval_str("(teval DenseMLE (poly:dmle 1 (mkarray v0 v1)) (mkarray 1))", &env).as_field().unwrap();
         prop_assert_eq!(lhs_1, rhs_1);
     }
 }
@@ -359,7 +359,7 @@ proptest! {
             ("c", fr(c)), ("x", fr(x)),
         ]);
         // eval(scale(c, add(p, q)), x) — multiple rules apply
-        let expr = "(eval (tscale DensePoly c (tadd DensePoly DensePoly (poly:duv a0 a1) (poly:duv b0 b1))) x)";
+        let expr = "(teval DensePoly (tscale DensePoly c (tadd DensePoly DensePoly (poly:duv a0 a1) (poly:duv b0 b1))) x)";
         let original = eval_str(expr, &env);
         let optimized = optimize_and_eval(expr, &env);
         prop_assert_eq!(original, optimized);
@@ -380,7 +380,7 @@ proptest! {
     #[test]
     fn optimizer_roundtrip_mixed(a in any::<u64>(), b in any::<u64>(), x in any::<u64>()) {
         let env = env_with_fields(&[("a", fr(a)), ("b", fr(b)), ("x", fr(x))]);
-        let expr = "(tadd Field Field (eval (poly:duv a b) x) (Σ i 0 2 (tselect Field (mkarray a b) i)))";
+        let expr = "(tadd Field Field (teval DensePoly (poly:duv a b) x) (Σ i 0 2 (tselect Field (mkarray a b) i)))";
         let original = eval_str(expr, &env);
         let optimized = optimize_and_eval(expr, &env);
         prop_assert_eq!(original, optimized);
@@ -508,8 +508,8 @@ proptest! {
     #[test]
     fn conversion_preserves_eval(c0 in any::<u64>(), c1 in any::<u64>(), c2 in any::<u64>(), x in any::<u64>()) {
         let env = env_with_fields(&[("c0", fr(c0)), ("c1", fr(c1)), ("c2", fr(c2)), ("x", fr(x))]);
-        let lhs = eval_str("(eval (coerce SparsePoly DensePoly (coerce DensePoly SparsePoly (poly:duv c0 c1 c2))) x)", &env).as_field().unwrap();
-        let rhs = eval_str("(eval (poly:duv c0 c1 c2) x)", &env).as_field().unwrap();
+        let lhs = eval_str("(teval DensePoly (coerce SparsePoly DensePoly (coerce DensePoly SparsePoly (poly:duv c0 c1 c2))) x)", &env).as_field().unwrap();
+        let rhs = eval_str("(teval DensePoly (poly:duv c0 c1 c2) x)", &env).as_field().unwrap();
         prop_assert_eq!(lhs, rhs);
     }
 
@@ -517,8 +517,8 @@ proptest! {
     #[test]
     fn fft_ifft_roundtrip(c0 in any::<u64>(), c1 in any::<u64>(), c2 in any::<u64>(), x in any::<u64>()) {
         let env = env_with_fields(&[("c0", fr(c0)), ("c1", fr(c1)), ("c2", fr(c2)), ("x", fr(x))]);
-        let original = eval_str("(eval (poly:duv c0 c1 c2) x)", &env).as_field().unwrap();
-        let roundtripped = eval_str("(eval (tifft Array 4 (tfft DensePoly 4 (poly:duv c0 c1 c2))) x)", &env).as_field().unwrap();
+        let original = eval_str("(teval DensePoly (poly:duv c0 c1 c2) x)", &env).as_field().unwrap();
+        let roundtripped = eval_str("(teval DensePoly (tifft Array 4 (tfft DensePoly 4 (poly:duv c0 c1 c2))) x)", &env).as_field().unwrap();
         prop_assert_eq!(original, roundtripped);
     }
 
@@ -540,8 +540,8 @@ proptest! {
     #[test]
     fn optimizer_fft_roundtrip(c0 in any::<u64>(), c1 in any::<u64>(), x in any::<u64>()) {
         let env = env_with_fields(&[("c0", fr(c0)), ("c1", fr(c1)), ("x", fr(x))]);
-        let original = eval_str("(eval (poly:duv c0 c1) x)", &env).as_field().unwrap();
-        let optimized = optimize_and_eval("(eval (tifft Array 4 (tfft DensePoly 4 (poly:duv c0 c1))) x)", &env).as_field().unwrap();
+        let original = eval_str("(teval DensePoly (poly:duv c0 c1) x)", &env).as_field().unwrap();
+        let optimized = optimize_and_eval("(teval DensePoly (tifft Array 4 (tfft DensePoly 4 (poly:duv c0 c1))) x)", &env).as_field().unwrap();
         prop_assert_eq!(original, optimized);
     }
 
@@ -549,10 +549,10 @@ proptest! {
     #[test]
     fn pdiv_division_identity(c0 in any::<u64>(), c1 in any::<u64>(), c2 in any::<u64>(), x in any::<u64>()) {
         let env = env_with_fields(&[("c0", fr(c0)), ("c1", fr(c1)), ("c2", fr(c2)), ("x", fr(x))]);
-        let a = eval_str("(eval (poly:duv c0 c1 c2) x)", &env).as_field().unwrap();
-        let q = eval_str("(eval (fst (tpdiv DensePoly (poly:duv c0 c1 c2) (poly:duv 1 1))) x)", &env).as_field().unwrap();
-        let b = eval_str("(eval (poly:duv 1 1) x)", &env).as_field().unwrap();
-        let r = eval_str("(eval (snd (tpdiv DensePoly (poly:duv c0 c1 c2) (poly:duv 1 1))) x)", &env).as_field().unwrap();
+        let a = eval_str("(teval DensePoly (poly:duv c0 c1 c2) x)", &env).as_field().unwrap();
+        let q = eval_str("(teval DensePoly (fst (tpdiv DensePoly (poly:duv c0 c1 c2) (poly:duv 1 1))) x)", &env).as_field().unwrap();
+        let b = eval_str("(teval DensePoly (poly:duv 1 1) x)", &env).as_field().unwrap();
+        let r = eval_str("(teval DensePoly (snd (tpdiv DensePoly (poly:duv c0 c1 c2) (poly:duv 1 1))) x)", &env).as_field().unwrap();
         prop_assert_eq!(a, q * b + r);
     }
 
@@ -588,8 +588,8 @@ proptest! {
     #[test]
     fn optimizer_conversion_roundtrip(c0 in any::<u64>(), c1 in any::<u64>(), x in any::<u64>()) {
         let env = env_with_fields(&[("c0", fr(c0)), ("c1", fr(c1)), ("x", fr(x))]);
-        let original = eval_str("(eval (poly:duv c0 c1) x)", &env).as_field().unwrap();
-        let optimized = optimize_and_eval("(eval (coerce SparsePoly DensePoly (coerce DensePoly SparsePoly (poly:duv c0 c1))) x)", &env).as_field().unwrap();
+        let original = eval_str("(teval DensePoly (poly:duv c0 c1) x)", &env).as_field().unwrap();
+        let optimized = optimize_and_eval("(teval DensePoly (coerce SparsePoly DensePoly (coerce DensePoly SparsePoly (poly:duv c0 c1))) x)", &env).as_field().unwrap();
         prop_assert_eq!(original, optimized);
     }
 }

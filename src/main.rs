@@ -397,7 +397,7 @@ fn main() {
 
     {
         let start = Instant::now();
-        let v = eval_str("(eval (poly:duv 1 2 3) 5)", &empty_env())
+        let v = eval_str("(teval DensePoly (poly:duv 1 2 3) 5)", &empty_env())
             .unwrap()
             .as_field()
             .unwrap();
@@ -416,7 +416,7 @@ fn main() {
 
     {
         let start = Instant::now();
-        let v = eval_str("(eval (tadd DensePoly DensePoly (poly:duv 1 2) (poly:duv 3 4)) 10)", &empty_env())
+        let v = eval_str("(teval DensePoly (tadd DensePoly DensePoly (poly:duv 1 2) (poly:duv 3 4)) 10)", &empty_env())
             .unwrap()
             .as_field()
             .unwrap();
@@ -435,7 +435,7 @@ fn main() {
 
     {
         let start = Instant::now();
-        let v = eval_str("(eval (tmul DensePoly DensePoly (poly:duv 1 1) (poly:duv 1 1)) 3)", &empty_env())
+        let v = eval_str("(teval DensePoly (tmul DensePoly DensePoly (poly:duv 1 1) (poly:duv 1 1)) 3)", &empty_env())
             .unwrap()
             .as_field()
             .unwrap();
@@ -462,7 +462,7 @@ fn main() {
             env.insert(format!("c{}", i).into(), Value::Field(*c));
         }
 
-        let poly_result = eval_str("(eval (poly:duv c0 c1 c2 c3 c4) x)", &env)
+        let poly_result = eval_str("(teval DensePoly (poly:duv c0 c1 c2 c3 c4) x)", &env)
             .unwrap()
             .as_field()
             .unwrap();
@@ -489,7 +489,7 @@ fn main() {
     println!("\n--- Extended Polynomial Operations ---");
 
     {
-        let v = eval_str("(eval (tadd DensePoly DensePoly (poly:duv 1 2 3) (tneg DensePoly (poly:duv 1 2))) 2)", &empty_env()).unwrap();
+        let v = eval_str("(teval DensePoly (tadd DensePoly DensePoly (poly:duv 1 2 3) (tneg DensePoly (poly:duv 1 2))) 2)", &empty_env()).unwrap();
         let passed = v == Value::Int(12);
         println!("  psub: {}", if passed { "PASS" } else { "FAIL" });
         results.push(TestResult {
@@ -502,7 +502,7 @@ fn main() {
     }
 
     {
-        let v = eval_str("(eval (tadd DensePoly DensePoly (poly:duv 1 1) (tneg DensePoly (poly:duv 1 1))) 7)", &empty_env()).unwrap();
+        let v = eval_str("(teval DensePoly (tadd DensePoly DensePoly (poly:duv 1 1) (tneg DensePoly (poly:duv 1 1))) 7)", &empty_env()).unwrap();
         let passed = v == Value::Int(0);
         println!("  pneg: {}", if passed { "PASS" } else { "FAIL" });
         results.push(TestResult {
@@ -515,7 +515,7 @@ fn main() {
     }
 
     {
-        let v = eval_str("(eval (fst (tpdiv DensePoly (poly:duv 1 3 2) (poly:duv 1 1))) 5)", &empty_env()).unwrap();
+        let v = eval_str("(teval DensePoly (fst (tpdiv DensePoly (poly:duv 1 3 2) (poly:duv 1 1))) 5)", &empty_env()).unwrap();
         let passed = v == Value::Int(11);
         println!("  pdiv quotient: {}", if passed { "PASS" } else { "FAIL" });
         results.push(TestResult {
@@ -528,7 +528,7 @@ fn main() {
     }
 
     {
-        let v = eval_str("(eval (snd (tpdiv DensePoly (poly:duv 1 0 1) (poly:duv 1 1))) 999)", &empty_env()).unwrap();
+        let v = eval_str("(teval DensePoly (snd (tpdiv DensePoly (poly:duv 1 0 1) (poly:duv 1 1))) 999)", &empty_env()).unwrap();
         let passed = v == Value::Int(2);
         println!("  pdiv remainder: {}", if passed { "PASS" } else { "FAIL" });
         results.push(TestResult {
@@ -554,7 +554,7 @@ fn main() {
     }
 
     {
-        let v = eval_str("(eval (tscale DensePoly 3 (poly:duv 1 1)) 2)", &empty_env()).unwrap();
+        let v = eval_str("(teval DensePoly (tscale DensePoly 3 (poly:duv 1 1)) 2)", &empty_env()).unwrap();
         let passed = v == Value::Int(9);
         println!("  pscale: {}", if passed { "PASS" } else { "FAIL" });
         results.push(TestResult {
@@ -572,7 +572,7 @@ fn main() {
     println!("\n--- Multilinear Extension (MLE) Operations ---");
 
     {
-        let v = eval_str("(eval (poly:dmle 2 (mkarray 1 2 3 4)) (mkarray 1 0))", &empty_env()).unwrap();
+        let v = eval_str("(teval DenseMLE (poly:dmle 2 (mkarray 1 2 3 4)) (mkarray 1 0))", &empty_env()).unwrap();
         let passed = v == Value::Int(2);
         println!("  mle-eval: {}", if passed { "PASS" } else { "FAIL" });
         results.push(TestResult {
@@ -599,7 +599,7 @@ fn main() {
 
     {
         let v = eval_str(
-            "(eval (fix (poly:dmle 2 (mkarray 1 2 3 4)) (mkarray 1)) (mkarray 0))",
+            "(teval DenseMLE (fix (poly:dmle 2 (mkarray 1 2 3 4)) (mkarray 1)) (mkarray 0))",
             &empty_env(),
         ).unwrap();
         let passed = v == Value::Int(2);
@@ -615,7 +615,7 @@ fn main() {
 
     {
         let v = eval_str(
-            "(eval (tadd DenseMLE DenseMLE (poly:dmle 2 (mkarray 1 0 0 0)) (poly:dmle 2 (mkarray 0 0 0 1))) (mkarray 1 1))",
+            "(teval DenseMLE (tadd DenseMLE DenseMLE (poly:dmle 2 (mkarray 1 0 0 0)) (poly:dmle 2 (mkarray 0 0 0 1))) (mkarray 1 1))",
             &empty_env(),
         ).unwrap();
         let passed = v == Value::Int(1);
@@ -636,7 +636,7 @@ fn main() {
 
     {
         let v = eval_str(
-            "(eval (poly:mv 2 (mkarray 5 2 3) (mkarray (mkarray) (mkarray 0 1) (mkarray 1 1))) (mkarray 2 7))",
+            "(teval MVPoly (poly:mv 2 (mkarray 5 2 3) (mkarray (mkarray) (mkarray 0 1) (mkarray 1 1))) (mkarray 2 7))",
             &empty_env(),
         ).unwrap();
         let passed = v == Value::Int(30);
@@ -738,21 +738,21 @@ fn main() {
     println!("\n--- Conversion Operations ---");
 
     {
-        let v = eval_str("(eval (coerce SparsePoly DensePoly (poly:suv 0 5 2 3)) 2)", &empty_env()).unwrap();
+        let v = eval_str("(teval DensePoly (coerce SparsePoly DensePoly (poly:suv 0 5 2 3)) 2)", &empty_env()).unwrap();
         let passed = v.as_field().unwrap() == Fr::from(17u64);
         println!("  densify sparse UV: {}", if passed { "PASS" } else { "FAIL" });
         results.push(TestResult { category: "conversions".into(), test_name: "densify_suv".into(), passed, details: "densify(5+3x²) at x=2 = 17".into(), time_us: 0.0 });
     }
 
     {
-        let v = eval_str("(eval (coerce DensePoly SparsePoly (poly:duv 5 0 3)) 2)", &empty_env()).unwrap();
+        let v = eval_str("(teval SparsePoly (coerce DensePoly SparsePoly (poly:duv 5 0 3)) 2)", &empty_env()).unwrap();
         let passed = v.as_field().unwrap() == Fr::from(17u64);
         println!("  sparsify dense UV: {}", if passed { "PASS" } else { "FAIL" });
         results.push(TestResult { category: "conversions".into(), test_name: "sparsify_duv".into(), passed, details: "sparsify(5+3x²) at x=2 = 17".into(), time_us: 0.0 });
     }
 
     {
-        let v = eval_str("(eval (coerce DenseMLE DensePoly (poly:dmle 1 (mkarray 3 7))) 2)", &empty_env()).unwrap();
+        let v = eval_str("(teval DensePoly (coerce DenseMLE DensePoly (poly:dmle 1 (mkarray 3 7))) 2)", &empty_env()).unwrap();
         let passed = v.as_field().unwrap() == Fr::from(11u64);
         println!("  as-uv from MLE: {}", if passed { "PASS" } else { "FAIL" });
         results.push(TestResult { category: "conversions".into(), test_name: "as_uv_mle".into(), passed, details: "1-var MLE[3,7] → UV, eval at 2 = 11".into(), time_us: 0.0 });
@@ -802,7 +802,7 @@ fn main() {
     println!("\n--- Sparse Polynomial Operations ---");
 
     {
-        let v = eval_str("(eval (poly:suv 0 5 2 3) 2)", &empty_env()).unwrap();
+        let v = eval_str("(teval SparsePoly (poly:suv 0 5 2 3) 2)", &empty_env()).unwrap();
         let passed = v.as_field().unwrap() == Fr::from(17u64);
         println!("  sparse UV eval: {}", if passed { "PASS" } else { "FAIL" });
         results.push(TestResult { category: "sparse_poly".into(), test_name: "spoly_eval".into(), passed, details: "5+3x^2 at x=2 = 17".into(), time_us: 0.0 });
@@ -810,7 +810,7 @@ fn main() {
 
     {
         let v = eval_str(
-            "(eval (poly:smle 2 (mkarray 0 10 3 20)) (mkarray 0 0))",
+            "(teval SparseMLE (poly:smle 2 (mkarray 0 10 3 20)) (mkarray 0 0))",
             &empty_env(),
         ).unwrap();
         let passed = v.as_field().unwrap() == Fr::from(10u64);
@@ -843,8 +843,8 @@ fn main() {
     {
         // IFFT roundtrip: eval(ifft(fft(p)), x) == eval(p, x)
         let env = empty_env();
-        let orig = eval_str("(eval (poly:duv 3 5 7) 10)", &env).unwrap().as_field().unwrap();
-        let rt = eval_str("(eval (tifft Array 4 (tfft DensePoly 4 (poly:duv 3 5 7))) 10)", &env).unwrap().as_field().unwrap();
+        let orig = eval_str("(teval DensePoly (poly:duv 3 5 7) 10)", &env).unwrap().as_field().unwrap();
+        let rt = eval_str("(teval DensePoly (tifft Array 4 (tfft DensePoly 4 (poly:duv 3 5 7))) 10)", &env).unwrap().as_field().unwrap();
         let passed = orig == rt;
         println!("  ifft roundtrip: {}", if passed { "PASS" } else { "FAIL" });
         results.push(TestResult { category: "fft".into(), test_name: "ifft_roundtrip".into(), passed, details: "ifft(fft(p)) preserves eval".into(), time_us: 0.0 });
@@ -867,7 +867,7 @@ fn main() {
 
     {
         // Univariate: 3x² + 5x + 7 at x=2 = 29
-        let v = eval_str("(eval (poly (ids x) (tmul Field Field 3 (tpow Field x 2)) (tmul Field Field 5 x) 7) 2)", &empty_env()).unwrap();
+        let v = eval_str("(teval SparsePoly (poly (ids x) (tmul Field Field 3 (tpow Field x 2)) (tmul Field Field 5 x) 7) 2)", &empty_env()).unwrap();
         let passed = v.as_field().unwrap() == Fr::from(29u64);
         println!("  poly UV basic: {}", if passed { "PASS" } else { "FAIL" });
         results.push(TestResult { category: "symbolic_poly".into(), test_name: "poly_uv_basic".into(), passed, details: "3x²+5x+7 at x=2 = 29".into(), time_us: 0.0 });
@@ -876,8 +876,8 @@ fn main() {
     {
         // Cross-check: symbolic matches poly:suv
         let env = empty_env();
-        let sym = eval_str("(eval (poly (ids x) (tmul Field Field 3 (tpow Field x 2)) (tmul Field Field 5 x) 7) 10)", &env).unwrap().as_field().unwrap();
-        let suv = eval_str("(eval (poly:suv 0 7 1 5 2 3) 10)", &env).unwrap().as_field().unwrap();
+        let sym = eval_str("(teval SparsePoly (poly (ids x) (tmul Field Field 3 (tpow Field x 2)) (tmul Field Field 5 x) 7) 10)", &env).unwrap().as_field().unwrap();
+        let suv = eval_str("(teval SparsePoly (poly:suv 0 7 1 5 2 3) 10)", &env).unwrap().as_field().unwrap();
         let passed = sym == suv;
         println!("  poly UV matches poly:suv: {}", if passed { "PASS" } else { "FAIL" });
         results.push(TestResult { category: "symbolic_poly".into(), test_name: "poly_uv_cross_check".into(), passed, details: "symbolic poly matches poly:suv at x=10".into(), time_us: 0.0 });
@@ -885,7 +885,7 @@ fn main() {
 
     {
         // Multivariate: x² + y³ + 4 at (3, 2) = 21
-        let v = eval_str("(eval (poly (ids x y) (tpow Field x 2) (tpow Field y 3) 4) (mkarray 3 2))", &empty_env()).unwrap();
+        let v = eval_str("(teval MVPoly (poly (ids x y) (tpow Field x 2) (tpow Field y 3) 4) (mkarray 3 2))", &empty_env()).unwrap();
         let passed = v.as_field().unwrap() == Fr::from(21u64);
         println!("  poly MV: {}", if passed { "PASS" } else { "FAIL" });
         results.push(TestResult { category: "symbolic_poly".into(), test_name: "poly_mv_basic".into(), passed, details: "x²+y³+4 at (3,2) = 21".into(), time_us: 0.0 });
@@ -893,7 +893,7 @@ fn main() {
 
     {
         // Cross term: 2xy at (3, 5) = 30
-        let v = eval_str("(eval (poly (ids x y) (tmul Field Field 2 (tmul Field Field x y))) (mkarray 3 5))", &empty_env()).unwrap();
+        let v = eval_str("(teval MVPoly (poly (ids x y) (tmul Field Field 2 (tmul Field Field x y))) (mkarray 3 5))", &empty_env()).unwrap();
         let passed = v.as_field().unwrap() == Fr::from(30u64);
         println!("  poly MV cross term: {}", if passed { "PASS" } else { "FAIL" });
         results.push(TestResult { category: "symbolic_poly".into(), test_name: "poly_mv_cross".into(), passed, details: "2xy at (3,5) = 30".into(), time_us: 0.0 });
@@ -921,10 +921,10 @@ fn main() {
     {
         // pdiv division identity: a = q*b + r
         let env = empty_env();
-        let a = eval_str("(eval (poly:duv 1 0 1) 5)", &env).unwrap().as_field().unwrap();
-        let q = eval_str("(eval (fst (tpdiv DensePoly (poly:duv 1 0 1) (poly:duv 1 1))) 5)", &env).unwrap().as_field().unwrap();
-        let b = eval_str("(eval (poly:duv 1 1) 5)", &env).unwrap().as_field().unwrap();
-        let r = eval_str("(eval (snd (tpdiv DensePoly (poly:duv 1 0 1) (poly:duv 1 1))) 5)", &env).unwrap().as_field().unwrap();
+        let a = eval_str("(teval DensePoly (poly:duv 1 0 1) 5)", &env).unwrap().as_field().unwrap();
+        let q = eval_str("(teval DensePoly (fst (tpdiv DensePoly (poly:duv 1 0 1) (poly:duv 1 1))) 5)", &env).unwrap().as_field().unwrap();
+        let b = eval_str("(teval DensePoly (poly:duv 1 1) 5)", &env).unwrap().as_field().unwrap();
+        let r = eval_str("(teval DensePoly (snd (tpdiv DensePoly (poly:duv 1 0 1) (poly:duv 1 1))) 5)", &env).unwrap().as_field().unwrap();
         let passed = a == q * b + r;
         println!("  pdiv identity a=qb+r: {}", if passed { "PASS" } else { "FAIL" });
         results.push(TestResult { category: "tuple".into(), test_name: "pdiv_identity".into(), passed, details: "a = q*b + r for (x²+1)/(x+1)".into(), time_us: 0.0 });
