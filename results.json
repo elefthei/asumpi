@@ -83,94 +83,94 @@
   "tests": [
     {
       "category": "field_arithmetic",
-      "details": "(tadd Field Field 3 7) = 10 ✓",
+      "details": "(add Field Field 3 7) = 10 ✓",
       "passed": true,
       "test_name": "add basic",
-      "time_us": 70.0
+      "time_us": 52.0
     },
     {
       "category": "field_arithmetic",
-      "details": "(tadd Field Field 10 (tneg Int 3)) = 7 ✓",
+      "details": "(add Field Field 10 (neg Int 3)) = 7 ✓",
       "passed": true,
       "test_name": "sub via neg",
-      "time_us": 6.0
+      "time_us": 4.0
     },
     {
       "category": "field_arithmetic",
-      "details": "(tmul Int Int 6 7) = 42 ✓",
+      "details": "(mul Int Int 6 7) = 42 ✓",
       "passed": true,
       "test_name": "mul basic",
-      "time_us": 1.0
+      "time_us": 2.0
     },
     {
       "category": "field_arithmetic",
-      "details": "(tadd Field Field 42 0) = 42 ✓",
+      "details": "(add Field Field 42 0) = 42 ✓",
       "passed": true,
       "test_name": "additive identity",
       "time_us": 1.0
     },
     {
       "category": "field_arithmetic",
-      "details": "(tmul Int Int 42 1) = 42 ✓",
+      "details": "(mul Int Int 42 1) = 42 ✓",
       "passed": true,
       "test_name": "multiplicative identity",
       "time_us": 1.0
     },
     {
       "category": "field_arithmetic",
-      "details": "(tmul Int Int 42 0) = 0 ✓",
+      "details": "(mul Int Int 42 0) = 0 ✓",
       "passed": true,
       "test_name": "mul by zero",
       "time_us": 1.0
     },
     {
       "category": "field_arithmetic",
-      "details": "(tneg Int (tneg Int 5)) = 5 ✓",
+      "details": "(neg Int (neg Int 5)) = 5 ✓",
       "passed": true,
       "test_name": "double negation",
       "time_us": 1.0
     },
     {
       "category": "field_arithmetic",
-      "details": "(tadd Field Field 99 (tneg Int 99)) = 0 ✓",
+      "details": "(add Field Field 99 (neg Int 99)) = 0 ✓",
       "passed": true,
       "test_name": "sub self",
       "time_us": 1.0
     },
     {
       "category": "field_arithmetic",
-      "details": "(tadd Field Field (tadd Field Field 1 2) (tadd Field Field 3 4)) = 10 ✓",
+      "details": "(add Field Field (add Field Field 1 2) (add Field Field 3 4)) = 10 ✓",
       "passed": true,
       "test_name": "nested add",
       "time_us": 2.0
     },
     {
       "category": "field_arithmetic",
-      "details": "(tmul Int Int 3 (tadd Int Int 4 5)) = 27 ✓",
+      "details": "(mul Int Int 3 (add Int Int 4 5)) = 27 ✓",
       "passed": true,
       "test_name": "distributivity",
       "time_us": 1.0
     },
     {
       "category": "field_arithmetic",
-      "details": "(tpow Field (coerce Int Field 2) 10) = 1024 ✓",
+      "details": "(pow Field (coerce Int Field 2) 10) = 1024 ✓",
       "passed": true,
       "test_name": "power",
-      "time_us": 10.0
+      "time_us": 9.0
     },
     {
       "category": "field_arithmetic",
       "details": "3 * inv(3) = Ok(Field(1))",
       "passed": true,
       "test_name": "inverse_self_product",
-      "time_us": 16.0
+      "time_us": 11.0
     },
     {
       "category": "field_arithmetic",
       "details": "42 / 7 = Ok(Field(6))",
       "passed": true,
       "test_name": "division",
-      "time_us": 16.0
+      "time_us": 9.0
     },
     {
       "category": "field_arithmetic",
@@ -184,35 +184,35 @@
       "details": "a+b == b+a with random a,b",
       "passed": true,
       "test_name": "add_commutativity",
-      "time_us": 5.0
+      "time_us": 4.0
     },
     {
       "category": "field_properties",
       "details": "a*b == b*a with random a,b",
       "passed": true,
       "test_name": "mul_commutativity",
-      "time_us": 6.0
+      "time_us": 3.0
     },
     {
       "category": "field_properties",
       "details": "a*(b+c) == a*b + a*c with random a,b,c",
       "passed": true,
       "test_name": "distributivity",
-      "time_us": 5.0
+      "time_us": 8.0
     },
     {
       "category": "field_properties",
       "details": "(a+b)+c == a+(b+c) with random a,b,c",
       "passed": true,
       "test_name": "add_associativity",
-      "time_us": 3.0
+      "time_us": 4.0
     },
     {
       "category": "field_properties",
       "details": "(a*b)*c == a*(b*c) with random a,b,c",
       "passed": true,
       "test_name": "mul_associativity",
-      "time_us": 4.0
+      "time_us": 3.0
     },
     {
       "category": "field_properties",
@@ -226,21 +226,21 @@
       "details": "a * inv(a) == 1 with random a",
       "passed": true,
       "test_name": "multiplicative_inverse",
-      "time_us": 7.0
+      "time_us": 8.0
     },
     {
       "category": "curve_operations",
       "details": "P+Q == Q+P",
       "passed": true,
       "test_name": "point_add_commutativity",
-      "time_us": 12.0
+      "time_us": 10.0
     },
     {
       "category": "curve_operations",
       "details": "P + (-P) == O",
       "passed": true,
       "test_name": "point_additive_inverse",
-      "time_us": 3.0
+      "time_us": 4.0
     },
     {
       "category": "curve_operations",
@@ -254,21 +254,21 @@
       "details": "s*(P+Q) == s*P + s*Q",
       "passed": true,
       "test_name": "scalar_mul_linearity",
-      "time_us": 516.0
+      "time_us": 534.0
     },
     {
       "category": "curve_operations",
       "details": "(a+b)*P == a*P + b*P",
       "passed": true,
       "test_name": "scalar_distributivity",
-      "time_us": 454.0
+      "time_us": 473.0
     },
     {
       "category": "sigma_pi",
       "details": "Σ i=0..3 arr[i] = 60",
       "passed": true,
       "test_name": "sigma_sum",
-      "time_us": 21.0
+      "time_us": 17.0
     },
     {
       "category": "sigma_pi",
@@ -282,14 +282,14 @@
       "details": "Σ s_i*P_i == MSM result",
       "passed": true,
       "test_name": "sigma_msm",
-      "time_us": 358.0
+      "time_us": 307.0
     },
     {
       "category": "polynomial",
       "details": "1+2x+3x^2 at x=5 = 86",
       "passed": true,
       "test_name": "poly_eval",
-      "time_us": 13.0
+      "time_us": 8.0
     },
     {
       "category": "polynomial",
@@ -303,7 +303,7 @@
       "details": "(1+x)^2 at x=3 = 16",
       "passed": true,
       "test_name": "poly_mul",
-      "time_us": 24.0
+      "time_us": 20.0
     },
     {
       "category": "polynomial",
@@ -328,14 +328,14 @@
     },
     {
       "category": "polynomial",
-      "details": "fst(tpdiv DensePoly (2x²+3x+1) (x+1)) at x=5 = 11",
+      "details": "fst(pdiv DensePoly (2x²+3x+1) (x+1)) at x=5 = 11",
       "passed": true,
       "test_name": "pdiv_quotient",
       "time_us": 0.0
     },
     {
       "category": "polynomial",
-      "details": "snd(tpdiv DensePoly (x²+1) (x+1)) = 2",
+      "details": "snd(pdiv DensePoly (x²+1) (x+1)) = 2",
       "passed": true,
       "test_name": "pdiv_remainder",
       "time_us": 0.0

@@ -8,7 +8,7 @@ use egg::*;
 define_language! {
     /// arkΣΠ: Typed algebraic language.
     ///
-    /// All arithmetic is typed (tadd, tmul, etc. carry type tags).
+    /// All arithmetic is typed (add, mul, etc. carry type tags).
     /// Indexed Σ/Π with symbolic bounded sizes for staged computation.
     /// Explicit coerce operator for representation/domain changes.
     pub enum ArkLang {
@@ -63,22 +63,22 @@ define_language! {
 
         // ── Typed Operations ──
         "coerce" = Coerce([Id; 3]),
-        "tadd"   = TAdd([Id; 4]),
-        "tneg"   = TNeg([Id; 2]),
-        "tmul"   = TMul([Id; 4]),
-        "tinv"   = TInv([Id; 2]),
-        "tscale" = TScale([Id; 3]),
-        "tpow"   = TPow([Id; 3]),
-        "teval"  = TEval([Id; 3]),
-        "tdeg"   = TDeg([Id; 2]),
-        "tnvars" = TNVars([Id; 2]),
-        "tpdiv"  = TPDiv([Id; 3]),
-        "tfft"   = TFft([Id; 3]),
-        "tifft"  = TIfft([Id; 3]),
-        "tselect"= TSelect([Id; 3]),
-        "tstore" = TStore([Id; 4]),
-        "taadd"  = TAAdd([Id; 3]),
-        "teq"    = TEq([Id; 3]),
+        "add"   = Add([Id; 4]),
+        "neg"   = Neg([Id; 2]),
+        "mul"   = Mul([Id; 4]),
+        "inv"   = Inv([Id; 2]),
+        "scale" = Scale([Id; 3]),
+        "pow"   = Pow([Id; 3]),
+        "eval"  = Eval([Id; 3]),
+        "deg"   = Deg([Id; 2]),
+        "nvars" = NVars([Id; 2]),
+        "pdiv"  = PDiv([Id; 3]),
+        "fft"   = Fft([Id; 3]),
+        "ifft"  = Ifft([Id; 3]),
+        "select"= Select([Id; 3]),
+        "store" = Store([Id; 4]),
+        "aadd"  = AAdd([Id; 3]),
+        "eq"    = Eq([Id; 3]),
 
         // ── Variable Reference ──
         Symbol(egg::Symbol),
@@ -111,13 +111,13 @@ mod tests {
 
     #[test]
     fn test_parse_simple() {
-        let expr: RecExpr<ArkLang> = "(tadd Int Int 1 2)".parse().unwrap();
+        let expr: RecExpr<ArkLang> = "(add Int Int 1 2)".parse().unwrap();
         assert_eq!(expr.as_ref().len(), 5);
     }
 
     #[test]
     fn test_parse_nested() {
-        let expr: RecExpr<ArkLang> = "(tmul Int Int (tadd Int Int x y) z)".parse().unwrap();
+        let expr: RecExpr<ArkLang> = "(mul Int Int (add Int Int x y) z)".parse().unwrap();
         assert!(expr.as_ref().len() >= 6);
     }
 
@@ -140,27 +140,27 @@ mod tests {
     #[test]
     fn test_parse_sigma() {
         let expr: RecExpr<ArkLang> =
-            "(Σ i 0 3 (tselect Int (mkarray 10 20 30) i))".parse().unwrap();
+            "(Σ i 0 3 (select Int (mkarray 10 20 30) i))".parse().unwrap();
         assert!(expr.as_ref().len() >= 4);
     }
 
     #[test]
     fn test_parse_let() {
         let expr: RecExpr<ArkLang> =
-            "(let x 42 (tadd Int Int x x))".parse().unwrap();
+            "(let x 42 (add Int Int x x))".parse().unwrap();
         assert!(expr.as_ref().len() >= 4);
     }
 
     #[test]
     fn test_parse_poly() {
         let expr: RecExpr<ArkLang> =
-            "(teval DensePoly (poly:duv 1 2 3) 5)".parse().unwrap();
+            "(eval DensePoly (poly:duv 1 2 3) 5)".parse().unwrap();
         assert!(expr.as_ref().len() >= 5);
     }
 
     #[test]
     fn test_roundtrip_display_parse() {
-        let expr: RecExpr<ArkLang> = "(tadd Int Int (tmul Int Int 3 x) (tneg Int y))".parse().unwrap();
+        let expr: RecExpr<ArkLang> = "(add Int Int (mul Int Int 3 x) (neg Int y))".parse().unwrap();
         let s = expr.to_string();
         let expr2: RecExpr<ArkLang> = s.parse().unwrap();
         assert_eq!(expr, expr2);

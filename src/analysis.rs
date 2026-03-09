@@ -177,7 +177,7 @@ impl Analysis<ArkLang> for TypeAnalysis {
             }
 
             // ── Typed Add ──
-            ArkLang::TAdd([_ta, _tb, a, b]) | ArkLang::TMul([_ta, _tb, a, b]) => {
+            ArkLang::Add([_ta, _tb, a, b]) | ArkLang::Mul([_ta, _tb, a, b]) => {
                 free_vars.extend(&cd(a).free_vars);
                 free_vars.extend(&cd(b).free_vars);
                 types.extend(&cd(a).types);
@@ -185,80 +185,80 @@ impl Analysis<ArkLang> for TypeAnalysis {
             }
 
             // ── Typed Neg ──
-            ArkLang::TNeg([_t, a]) => {
+            ArkLang::Neg([_t, a]) => {
                 free_vars.extend(&cd(a).free_vars);
                 types.extend(&cd(a).types);
             }
 
             // ── Typed Inv ──
-            ArkLang::TInv([_t, a]) => {
+            ArkLang::Inv([_t, a]) => {
                 free_vars.extend(&cd(a).free_vars);
                 types.insert(ArkType::Field);
             }
 
             // ── Typed Scale ──
-            ArkLang::TScale([_t, c, a]) => {
+            ArkLang::Scale([_t, c, a]) => {
                 free_vars.extend(&cd(c).free_vars);
                 free_vars.extend(&cd(a).free_vars);
                 types.extend(&cd(a).types);
             }
 
             // ── Typed Pow ──
-            ArkLang::TPow([_t, base, exp]) => {
+            ArkLang::Pow([_t, base, exp]) => {
                 free_vars.extend(&cd(base).free_vars);
                 free_vars.extend(&cd(exp).free_vars);
                 types.insert(ArkType::Field);
             }
 
             // ── Typed Eval ──
-            ArkLang::TEval([_t, p, x]) => {
+            ArkLang::Eval([_t, p, x]) => {
                 free_vars.extend(&cd(p).free_vars);
                 free_vars.extend(&cd(x).free_vars);
                 types.insert(ArkType::Field);
             }
 
             // ── Typed Deg ──
-            ArkLang::TDeg([_t, p]) => {
+            ArkLang::Deg([_t, p]) => {
                 free_vars.extend(&cd(p).free_vars);
                 types.insert(ArkType::Int);
             }
 
             // ── Typed NVars ──
-            ArkLang::TNVars([_t, p]) => {
+            ArkLang::NVars([_t, p]) => {
                 free_vars.extend(&cd(p).free_vars);
                 types.insert(ArkType::Int);
             }
 
             // ── Typed PDiv ──
-            ArkLang::TPDiv([_t, a, b]) => {
+            ArkLang::PDiv([_t, a, b]) => {
                 free_vars.extend(&cd(a).free_vars);
                 free_vars.extend(&cd(b).free_vars);
                 types.extend(&cd(a).types);
             }
 
             // ── Typed FFT ──
-            ArkLang::TFft([_t, n, p]) => {
+            ArkLang::Fft([_t, n, p]) => {
                 free_vars.extend(&cd(n).free_vars);
                 free_vars.extend(&cd(p).free_vars);
                 types.insert(ArkType::Array);
             }
 
             // ── Typed IFFT ──
-            ArkLang::TIfft([_t, n, evals]) => {
+            ArkLang::Ifft([_t, n, evals]) => {
                 free_vars.extend(&cd(n).free_vars);
                 free_vars.extend(&cd(evals).free_vars);
                 types.insert(ArkType::DensePoly);
             }
 
             // ── Typed Select ──
-            ArkLang::TSelect([_t, arr, idx]) => {
+            ArkLang::Select([_t, arr, idx]) => {
                 free_vars.extend(&cd(arr).free_vars);
                 free_vars.extend(&cd(idx).free_vars);
                 types.extend(&cd(arr).types); // element type from the tag
             }
 
             // ── Typed Store ──
-            ArkLang::TStore([_t, arr, idx, val]) => {
+            ArkLang::Store([_t, arr, idx, val]) => {
                 free_vars.extend(&cd(arr).free_vars);
                 free_vars.extend(&cd(idx).free_vars);
                 free_vars.extend(&cd(val).free_vars);
@@ -266,14 +266,14 @@ impl Analysis<ArkLang> for TypeAnalysis {
             }
 
             // ── Typed AAdd ──
-            ArkLang::TAAdd([_t, a, b]) => {
+            ArkLang::AAdd([_t, a, b]) => {
                 free_vars.extend(&cd(a).free_vars);
                 free_vars.extend(&cd(b).free_vars);
                 types.insert(ArkType::Array);
             }
 
             // ── Typed Eq ──
-            ArkLang::TEq([_t, a, b]) => {
+            ArkLang::Eq([_t, a, b]) => {
                 free_vars.extend(&cd(a).free_vars);
                 free_vars.extend(&cd(b).free_vars);
                 types.insert(ArkType::Bool);
@@ -340,7 +340,7 @@ mod tests {
 
     #[test]
     fn test_free_vars_simple() {
-        let (egraph, ids) = make_egraph(&["(tadd Int Int x y)"]);
+        let (egraph, ids) = make_egraph(&["(add Int Int x y)"]);
         let data = &egraph[ids[0]].data;
         assert!(data.free_vars.contains(&Symbol::from("x")));
         assert!(data.free_vars.contains(&Symbol::from("y")));
@@ -349,14 +349,14 @@ mod tests {
 
     #[test]
     fn test_free_vars_constant() {
-        let (egraph, ids) = make_egraph(&["(tadd Int Int 1 2)"]);
+        let (egraph, ids) = make_egraph(&["(add Int Int 1 2)"]);
         let data = &egraph[ids[0]].data;
         assert!(data.free_vars.is_empty());
     }
 
     #[test]
     fn test_free_vars_let_binding() {
-        let (egraph, ids) = make_egraph(&["(let x 5 (tadd Int Int x y))"]);
+        let (egraph, ids) = make_egraph(&["(let x 5 (add Int Int x y))"]);
         let data = &egraph[ids[0]].data;
         // x is bound by let, only y is free
         assert!(!data.free_vars.contains(&Symbol::from("x")));
@@ -366,7 +366,7 @@ mod tests {
 
     #[test]
     fn test_free_vars_sigma() {
-        let (egraph, ids) = make_egraph(&["(Σ i 0 N (tscale Field c (tselect Int arr i)))"]);
+        let (egraph, ids) = make_egraph(&["(Σ i 0 N (scale Field c (select Int arr i)))"]);
         let data = &egraph[ids[0]].data;
         // i is bound by Σ; c, arr, N are free
         assert!(!data.free_vars.contains(&Symbol::from("i")));
@@ -378,7 +378,7 @@ mod tests {
 
     #[test]
     fn test_free_vars_nested_sigma() {
-        let (egraph, ids) = make_egraph(&["(Σ i 0 N (Σ j 0 M (tmul Int Int i j)))"]);
+        let (egraph, ids) = make_egraph(&["(Σ i 0 N (Σ j 0 M (mul Int Int i j)))"]);
         let data = &egraph[ids[0]].data;
         // i, j are bound; N, M are free
         assert!(!data.free_vars.contains(&Symbol::from("i")));
@@ -390,7 +390,7 @@ mod tests {
 
     #[test]
     fn test_free_vars_let_val_references() {
-        let (egraph, ids) = make_egraph(&["(let x (tadd Int Int y 1) (tmul Int Int x z))"]);
+        let (egraph, ids) = make_egraph(&["(let x (add Int Int y 1) (mul Int Int x z))"]);
         let data = &egraph[ids[0]].data;
         assert!(!data.free_vars.contains(&Symbol::from("x")));
         assert!(data.free_vars.contains(&Symbol::from("y")));
@@ -414,14 +414,14 @@ mod tests {
 
     #[test]
     fn test_type_eval_produces_field() {
-        let (egraph, ids) = make_egraph(&["(teval DensePoly (poly:duv 1 2) 5)"]);
+        let (egraph, ids) = make_egraph(&["(eval DensePoly (poly:duv 1 2) 5)"]);
         let data = &egraph[ids[0]].data;
         assert!(data.types.contains(&ArkType::Field));
     }
 
     #[test]
     fn test_type_eq_produces_bool() {
-        let (egraph, ids) = make_egraph(&["(teq Field x y)"]);
+        let (egraph, ids) = make_egraph(&["(eq Field x y)"]);
         let data = &egraph[ids[0]].data;
         assert!(data.types.contains(&ArkType::Bool));
     }
@@ -435,12 +435,12 @@ mod tests {
 
     #[test]
     fn test_independent_of_true() {
-        let (mut egraph, _) = make_egraph(&["(Σ i 0 3 (tscale Field c (tselect Int arr i)))"]);
+        let (mut egraph, _) = make_egraph(&["(Σ i 0 3 (scale Field c (select Int arr i)))"]);
         let cond = IndependentOf {
             expr_var: "?c".parse().unwrap(),
             idx_var: "?i".parse().unwrap(),
         };
-        let pat: Pattern<ArkLang> = "(Σ ?i ?lo ?hi (tscale ?T ?c ?f))".parse().unwrap();
+        let pat: Pattern<ArkLang> = "(Σ ?i ?lo ?hi (scale ?T ?c ?f))".parse().unwrap();
         let matches = pat.search(&egraph);
         assert!(!matches.is_empty(), "pattern should match");
         for mat in &matches {
@@ -455,12 +455,12 @@ mod tests {
 
     #[test]
     fn test_independent_of_false() {
-        let (mut egraph, _) = make_egraph(&["(Σ i 0 3 (tscale Field i (tselect Int arr i)))"]);
+        let (mut egraph, _) = make_egraph(&["(Σ i 0 3 (scale Field i (select Int arr i)))"]);
         let cond = IndependentOf {
             expr_var: "?c".parse().unwrap(),
             idx_var: "?i".parse().unwrap(),
         };
-        let pat: Pattern<ArkLang> = "(Σ ?i ?lo ?hi (tscale ?T ?c ?f))".parse().unwrap();
+        let pat: Pattern<ArkLang> = "(Σ ?i ?lo ?hi (scale ?T ?c ?f))".parse().unwrap();
         let matches = pat.search(&egraph);
         assert!(!matches.is_empty(), "pattern should match");
         for mat in &matches {
@@ -475,21 +475,21 @@ mod tests {
 
     #[test]
     fn test_independent_of_complex_expr() {
-        // c = (tadd Int Int a b), independent of i
+        // c = (add Int Int a b), independent of i
         let (mut egraph, _) =
-            make_egraph(&["(Σ i 0 N (tscale Field (tadd Int Int a b) (tselect Int arr i)))"]);
+            make_egraph(&["(Σ i 0 N (scale Field (add Int Int a b) (select Int arr i)))"]);
         let cond = IndependentOf {
             expr_var: "?c".parse().unwrap(),
             idx_var: "?i".parse().unwrap(),
         };
-        let pat: Pattern<ArkLang> = "(Σ ?i ?lo ?hi (tscale ?T ?c ?f))".parse().unwrap();
+        let pat: Pattern<ArkLang> = "(Σ ?i ?lo ?hi (scale ?T ?c ?f))".parse().unwrap();
         let matches = pat.search(&egraph);
         assert!(!matches.is_empty());
         for mat in &matches {
             for subst in &mat.substs {
                 assert!(
                     cond.check(&mut egraph, mat.eclass, subst),
-                    "(tadd Int Int a b) should be independent of i"
+                    "(add Int Int a b) should be independent of i"
                 );
             }
         }
@@ -497,21 +497,21 @@ mod tests {
 
     #[test]
     fn test_independent_of_expr_uses_idx() {
-        // c = (tadd Int Int a i), depends on i
+        // c = (add Int Int a i), depends on i
         let (mut egraph, _) =
-            make_egraph(&["(Σ i 0 N (tscale Field (tadd Int Int a i) (tselect Int arr i)))"]);
+            make_egraph(&["(Σ i 0 N (scale Field (add Int Int a i) (select Int arr i)))"]);
         let cond = IndependentOf {
             expr_var: "?c".parse().unwrap(),
             idx_var: "?i".parse().unwrap(),
         };
-        let pat: Pattern<ArkLang> = "(Σ ?i ?lo ?hi (tscale ?T ?c ?f))".parse().unwrap();
+        let pat: Pattern<ArkLang> = "(Σ ?i ?lo ?hi (scale ?T ?c ?f))".parse().unwrap();
         let matches = pat.search(&egraph);
         assert!(!matches.is_empty());
         for mat in &matches {
             for subst in &mat.substs {
                 assert!(
                     !cond.check(&mut egraph, mat.eclass, subst),
-                    "(tadd Int Int a i) should depend on i"
+                    "(add Int Int a i) should depend on i"
                 );
             }
         }

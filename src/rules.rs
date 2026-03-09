@@ -7,61 +7,61 @@ use egg::*;
 use crate::language::ArkLang;
 use crate::analysis::{TypeAnalysis, IndependentOf};
 
-/// Typed add rules (tadd commutativity, associativity, negation cancellation).
-pub fn typed_add_rules() -> Vec<Rewrite<ArkLang, TypeAnalysis>> {
+/// Typed add rules (add commutativity, associativity, negation cancellation).
+pub fn add_rules() -> Vec<Rewrite<ArkLang, TypeAnalysis>> {
     vec![
-        rewrite!("tadd-comm"; "(tadd ?T ?V ?a ?b)" => "(tadd ?V ?T ?b ?a)"),
-        rewrite!("tadd-assoc"; "(tadd ?T ?V ?a (tadd ?V ?W ?b ?c))" => "(tadd ?T ?W (tadd ?T ?V ?a ?b) ?c)"),
-        rewrite!("tadd-neg"; "(tadd ?T ?T ?a (tneg ?T ?a))" => "0"),
+        rewrite!("add-comm"; "(add ?T ?V ?a ?b)" => "(add ?V ?T ?b ?a)"),
+        rewrite!("add-assoc"; "(add ?T ?V ?a (add ?V ?W ?b ?c))" => "(add ?T ?W (add ?T ?V ?a ?b) ?c)"),
+        rewrite!("add-neg"; "(add ?T ?T ?a (neg ?T ?a))" => "0"),
     ]
 }
 
-/// Typed arithmetic rules (Wave 2: tneg, tmul, tscale, tpow).
-pub fn typed_arith_rules() -> Vec<Rewrite<ArkLang, TypeAnalysis>> {
+/// Typed arithmetic rules (Wave 2: neg, mul, scale, pow).
+pub fn arith_rules() -> Vec<Rewrite<ArkLang, TypeAnalysis>> {
     vec![
         // ── Negation ──
-        rewrite!("double-tneg"; "(tneg ?T (tneg ?T ?a))" => "?a"),
-        rewrite!("tneg-as-tscale"; "(tneg ?T ?a)" => "(tscale ?T -1 ?a)"),
+        rewrite!("double-neg"; "(neg ?T (neg ?T ?a))" => "?a"),
+        rewrite!("neg-as-scale"; "(neg ?T ?a)" => "(scale ?T -1 ?a)"),
 
         // ── Multiplication ──
-        rewrite!("tmul-comm"; "(tmul ?T ?V ?a ?b)" => "(tmul ?V ?T ?b ?a)"),
-        rewrite!("tmul-assoc"; "(tmul ?T ?V ?a (tmul ?V ?W ?b ?c))" => "(tmul ?T ?W (tmul ?T ?V ?a ?b) ?c)"),
-        rewrite!("tmul-dist"; "(tmul ?T ?T ?a (tadd ?T ?T ?b ?c))" => "(tadd ?T ?T (tmul ?T ?T ?a ?b) (tmul ?T ?T ?a ?c))"),
+        rewrite!("mul-comm"; "(mul ?T ?V ?a ?b)" => "(mul ?V ?T ?b ?a)"),
+        rewrite!("mul-assoc"; "(mul ?T ?V ?a (mul ?V ?W ?b ?c))" => "(mul ?T ?W (mul ?T ?V ?a ?b) ?c)"),
+        rewrite!("mul-dist"; "(mul ?T ?T ?a (add ?T ?T ?b ?c))" => "(add ?T ?T (mul ?T ?T ?a ?b) (mul ?T ?T ?a ?c))"),
 
         // ── Scale ──
-        rewrite!("tscale-one"; "(tscale ?T 1 ?a)" => "?a"),
-        rewrite!("tscale-zero"; "(tscale ?T 0 ?a)" => "0"),
-        rewrite!("tscale-dist"; "(tscale ?T ?c (tadd ?T ?T ?a ?b))" => "(tadd ?T ?T (tscale ?T ?c ?a) (tscale ?T ?c ?b))"),
+        rewrite!("scale-one"; "(scale ?T 1 ?a)" => "?a"),
+        rewrite!("scale-zero"; "(scale ?T 0 ?a)" => "0"),
+        rewrite!("scale-dist"; "(scale ?T ?c (add ?T ?T ?a ?b))" => "(add ?T ?T (scale ?T ?c ?a) (scale ?T ?c ?b))"),
     ]
 }
 
-/// Typed guarded sigma rules for tscale/tmul factor extraction.
-pub fn typed_guarded_arith_rules() -> Vec<Rewrite<ArkLang, TypeAnalysis>> {
+/// Typed guarded sigma rules for scale/mul factor extraction.
+pub fn guarded_arith_rules() -> Vec<Rewrite<ArkLang, TypeAnalysis>> {
     vec![
-        rewrite!("sigma-factor-tscale";
-            "(Σ ?i ?lo ?hi (tscale ?T ?c ?f))" => "(tscale ?T ?c (Σ ?i ?lo ?hi ?f))"
+        rewrite!("sigma-factor-scale";
+            "(Σ ?i ?lo ?hi (scale ?T ?c ?f))" => "(scale ?T ?c (Σ ?i ?lo ?hi ?f))"
             if IndependentOf { expr_var: "?c".parse().unwrap(), idx_var: "?i".parse().unwrap() }
         ),
-        rewrite!("sigma-factor-tmul";
-            "(Σ ?i ?lo ?hi (tmul ?T ?T ?c ?f))" => "(tmul ?T ?T ?c (Σ ?i ?lo ?hi ?f))"
+        rewrite!("sigma-factor-mul";
+            "(Σ ?i ?lo ?hi (mul ?T ?T ?c ?f))" => "(mul ?T ?T ?c (Σ ?i ?lo ?hi ?f))"
             if IndependentOf { expr_var: "?c".parse().unwrap(), idx_var: "?i".parse().unwrap() }
         ),
     ]
 }
 
 /// Custom applier that reads the body type from TypeAnalysis to emit typed add/mul.
-struct TypedUnrollApplier {
+struct UnrollApplier {
     /// Pattern variables for the body subexpressions (one per iteration value)
     body_var: Var,
     /// Pattern variable for the loop index
     idx_var: Var,
     /// Iteration values (e.g., [0, 1] for unroll-2)
     iter_vals: Vec<i64>,
-    /// Whether to use tadd (for Σ) or mul (for Π)
+    /// Whether to use add (for Σ) or mul (for Π)
     op: &'static str,
 }
 
-impl Applier<ArkLang, TypeAnalysis> for TypedUnrollApplier {
+impl Applier<ArkLang, TypeAnalysis> for UnrollApplier {
     fn apply_one(
         &self,
         egraph: &mut EGraph<ArkLang, TypeAnalysis>,
@@ -110,19 +110,19 @@ impl Applier<ArkLang, TypeAnalysis> for TypedUnrollApplier {
             return vec![let_ids[0]];
         }
 
-        // Build a right-associative chain of tadd (or mul for Π)
-        let result = if self.op == "tadd" {
-            // (tadd T T (let i 0 body) (tadd T T (let i 1 body) ...))
+        // Build a right-associative chain of add (or mul for Π)
+        let result = if self.op == "add" {
+            // (add T T (let i 0 body) (add T T (let i 1 body) ...))
             let mut acc = *let_ids.last().unwrap();
             for &lid in let_ids[..let_ids.len() - 1].iter().rev() {
-                acc = egraph.add(ArkLang::TAdd([tag_id, tag_id, lid, acc]));
+                acc = egraph.add(ArkLang::Add([tag_id, tag_id, lid, acc]));
             }
             acc
         } else {
-            // tmul: use TMul for typed Π unrolling
+            // mul: use Mul for typed Π unrolling
             let mut acc = *let_ids.last().unwrap();
             for &lid in let_ids[..let_ids.len() - 1].iter().rev() {
-                acc = egraph.add(ArkLang::TMul([tag_id, tag_id, lid, acc]));
+                acc = egraph.add(ArkLang::Mul([tag_id, tag_id, lid, acc]));
             }
             acc
         };
@@ -132,65 +132,65 @@ impl Applier<ArkLang, TypeAnalysis> for TypedUnrollApplier {
     }
 }
 
-/// Typed sigma unrolling rules using TypedUnrollApplier.
-pub fn typed_sigma_unroll_rules() -> Vec<Rewrite<ArkLang, TypeAnalysis>> {
+/// Typed sigma unrolling rules using UnrollApplier.
+pub fn sigma_unroll_rules() -> Vec<Rewrite<ArkLang, TypeAnalysis>> {
     vec![
         Rewrite::new(
             Symbol::from("typed-sigma-unroll-2"),
             "(Σ ?i 0 2 ?f)".parse::<Pattern<ArkLang>>().unwrap(),
-            TypedUnrollApplier {
+            UnrollApplier {
                 body_var: "?f".parse().unwrap(),
                 idx_var: "?i".parse().unwrap(),
                 iter_vals: vec![0, 1],
-                op: "tadd",
+                op: "add",
             },
         ).unwrap(),
         Rewrite::new(
             Symbol::from("typed-sigma-unroll-3"),
             "(Σ ?i 0 3 ?f)".parse::<Pattern<ArkLang>>().unwrap(),
-            TypedUnrollApplier {
+            UnrollApplier {
                 body_var: "?f".parse().unwrap(),
                 idx_var: "?i".parse().unwrap(),
                 iter_vals: vec![0, 1, 2],
-                op: "tadd",
+                op: "add",
             },
         ).unwrap(),
     ]
 }
 
-/// Typed sigma distribution over tadd.
-pub fn typed_sigma_rules() -> Vec<Rewrite<ArkLang, TypeAnalysis>> {
+/// Typed sigma distribution over add.
+pub fn sigma_rules() -> Vec<Rewrite<ArkLang, TypeAnalysis>> {
     vec![
-        rewrite!("sigma-dist-tadd"; "(Σ ?i ?lo ?hi (tadd ?T ?T ?f ?g))"
-            => "(tadd ?T ?T (Σ ?i ?lo ?hi ?f) (Σ ?i ?lo ?hi ?g))"),
+        rewrite!("sigma-dist-add"; "(Σ ?i ?lo ?hi (add ?T ?T ?f ?g))"
+            => "(add ?T ?T (Σ ?i ?lo ?hi ?f) (Σ ?i ?lo ?hi ?g))"),
     ]
 }
 
 /// Typed sigma fusion rule.
-pub fn typed_guarded_sigma_rules() -> Vec<Rewrite<ArkLang, TypeAnalysis>> {
+pub fn guarded_sigma_rules() -> Vec<Rewrite<ArkLang, TypeAnalysis>> {
     vec![
-        rewrite!("sigma-fusion-tadd";
-            "(tadd ?T ?T (Σ ?i ?lo ?hi ?f) (Σ ?i ?lo ?hi ?g))" => "(Σ ?i ?lo ?hi (tadd ?T ?T ?f ?g))"
+        rewrite!("sigma-fusion-add";
+            "(add ?T ?T (Σ ?i ?lo ?hi ?f) (Σ ?i ?lo ?hi ?g))" => "(Σ ?i ?lo ?hi (add ?T ?T ?f ?g))"
         ),
     ]
 }
 
 /// Typed eval-distribution rules (typed polynomial evaluation distributes).
-pub fn typed_eval_rules() -> Vec<Rewrite<ArkLang, TypeAnalysis>> {
+pub fn eval_rules() -> Vec<Rewrite<ArkLang, TypeAnalysis>> {
     vec![
-        rewrite!("teval-tadd"; "(teval ?T (tadd ?T ?T ?p ?q) ?x)"
-            => "(tadd Field Field (teval ?T ?p ?x) (teval ?T ?q ?x))"),
-        rewrite!("teval-tneg"; "(teval ?T (tneg ?T ?p) ?x)"
-            => "(tneg Field (teval ?T ?p ?x))"),
-        rewrite!("teval-tscale"; "(teval ?T (tscale ?T ?c ?p) ?x)"
-            => "(tmul Field Field ?c (teval ?T ?p ?x))"),
-        rewrite!("teval-tmul"; "(teval ?T (tmul ?T ?T ?p ?q) ?x)"
-            => "(tmul Field Field (teval ?T ?p ?x) (teval ?T ?q ?x))"),
+        rewrite!("eval-add"; "(eval ?T (add ?T ?T ?p ?q) ?x)"
+            => "(add Field Field (eval ?T ?p ?x) (eval ?T ?q ?x))"),
+        rewrite!("eval-neg"; "(eval ?T (neg ?T ?p) ?x)"
+            => "(neg Field (eval ?T ?p ?x))"),
+        rewrite!("eval-scale"; "(eval ?T (scale ?T ?c ?p) ?x)"
+            => "(mul Field Field ?c (eval ?T ?p ?x))"),
+        rewrite!("eval-mul"; "(eval ?T (mul ?T ?T ?p ?q) ?x)"
+            => "(mul Field Field (eval ?T ?p ?x) (eval ?T ?q ?x))"),
     ]
 }
 
 /// Typed conversion roundtrip rules (coerce + fft/ifft + structural).
-pub fn typed_conversion_rules() -> Vec<Rewrite<ArkLang, TypeAnalysis>> {
+pub fn conversion_rules() -> Vec<Rewrite<ArkLang, TypeAnalysis>> {
     vec![
         // Coerce roundtrips
         rewrite!("coerce-dense-sparse-roundtrip";
@@ -202,10 +202,10 @@ pub fn typed_conversion_rules() -> Vec<Rewrite<ArkLang, TypeAnalysis>> {
         rewrite!("coerce-poly-mle-roundtrip";
             "(coerce DenseMLE DensePoly (coerce DensePoly DenseMLE ?m))" => "?m"),
         // Typed FFT/IFFT roundtrips
-        rewrite!("tifft-tfft"; "(tifft Array ?n (tfft ?T ?n ?p))" => "?p"),
-        rewrite!("tfft-tifft"; "(tfft DensePoly ?n (tifft Array ?n ?e))" => "?e"),
+        rewrite!("ifft-fft"; "(ifft Array ?n (fft ?T ?n ?p))" => "?p"),
+        rewrite!("fft-ifft"; "(fft DensePoly ?n (ifft Array ?n ?e))" => "?e"),
         // Typed aadd commutativity
-        rewrite!("taadd-comm"; "(taadd ?T ?a ?b)" => "(taadd ?T ?b ?a)"),
+        rewrite!("aadd-comm"; "(aadd ?T ?a ?b)" => "(aadd ?T ?b ?a)"),
         // Tuple projections
         rewrite!("fst-pair"; "(fst (pair ?a ?b))" => "?a"),
         rewrite!("snd-pair"; "(snd (pair ?a ?b))" => "?b"),
@@ -215,14 +215,14 @@ pub fn typed_conversion_rules() -> Vec<Rewrite<ArkLang, TypeAnalysis>> {
 
 /// All rules combined (typed only).
 pub fn all_rules() -> Vec<Rewrite<ArkLang, TypeAnalysis>> {
-    let mut rules = typed_add_rules();
-    rules.extend(typed_arith_rules());
-    rules.extend(typed_sigma_rules());
-    rules.extend(typed_guarded_sigma_rules());
-    rules.extend(typed_guarded_arith_rules());
-    rules.extend(typed_sigma_unroll_rules());
-    rules.extend(typed_eval_rules());
-    rules.extend(typed_conversion_rules());
+    let mut rules = add_rules();
+    rules.extend(arith_rules());
+    rules.extend(sigma_rules());
+    rules.extend(guarded_sigma_rules());
+    rules.extend(guarded_arith_rules());
+    rules.extend(sigma_unroll_rules());
+    rules.extend(eval_rules());
+    rules.extend(conversion_rules());
     rules
 }
 
@@ -278,35 +278,35 @@ mod tests {
     }
 
     // ═══════════════════════════════════════════════
-    // Wave 1: Typed add (tadd) rewrite rule tests
+    // Wave 1: Typed add (add) rewrite rule tests
     // ═══════════════════════════════════════════════
 
     #[test]
-    fn test_tadd_comm_rewrite() {
-        let rules = typed_add_rules();
+    fn test_add_comm_rewrite() {
+        let rules = add_rules();
         assert_merge(
-            "(tadd Field Field x y)",
-            "(tadd Field Field y x)",
-            &rules, "tadd-comm"
+            "(add Field Field x y)",
+            "(add Field Field y x)",
+            &rules, "add-comm"
         );
     }
 
     #[test]
-    fn test_tadd_assoc_rewrite() {
-        let rules = typed_add_rules();
+    fn test_add_assoc_rewrite() {
+        let rules = add_rules();
         assert_merge(
-            "(tadd Field Field a (tadd Field Field b c))",
-            "(tadd Field Field (tadd Field Field a b) c)",
-            &rules, "tadd-assoc"
+            "(add Field Field a (add Field Field b c))",
+            "(add Field Field (add Field Field a b) c)",
+            &rules, "add-assoc"
         );
     }
 
     #[test]
-    fn test_tadd_comm_preserves_types() {
+    fn test_add_comm_preserves_types() {
         // Ensure type pattern variables bind correctly in commutativity
-        let rules = typed_add_rules();
-        let e1: RecExpr<ArkLang> = "(tadd DensePoly Field a b)".parse().unwrap();
-        let e2: RecExpr<ArkLang> = "(tadd Field DensePoly b a)".parse().unwrap();
+        let rules = add_rules();
+        let e1: RecExpr<ArkLang> = "(add DensePoly Field a b)".parse().unwrap();
+        let e2: RecExpr<ArkLang> = "(add Field DensePoly b a)".parse().unwrap();
         let mut egraph: EGraph<ArkLang, TypeAnalysis> = EGraph::default();
         let id1 = egraph.add_expr(&e1);
         let id2 = egraph.add_expr(&e2);
@@ -314,37 +314,37 @@ mod tests {
         assert_eq!(
             runner.egraph.find(id1),
             runner.egraph.find(id2),
-            "tadd-comm should swap both types and operands"
+            "add-comm should swap both types and operands"
         );
     }
 
     #[test]
     fn test_sigma_dist_tadd() {
-        let rules = typed_sigma_rules();
+        let rules = sigma_rules();
         assert_merge(
-            "(Σ i lo hi (tadd Field Field f g))",
-            "(tadd Field Field (Σ i lo hi f) (Σ i lo hi g))",
-            &rules, "sigma-dist-tadd"
+            "(Σ i lo hi (add Field Field f g))",
+            "(add Field Field (Σ i lo hi f) (Σ i lo hi g))",
+            &rules, "sigma-dist-add"
         );
     }
 
     #[test]
     fn test_sigma_fusion_tadd() {
-        let rules = typed_guarded_sigma_rules();
+        let rules = guarded_sigma_rules();
         assert_merge(
-            "(tadd Field Field (Σ i lo hi f) (Σ i lo hi g))",
-            "(Σ i lo hi (tadd Field Field f g))",
-            &rules, "sigma-fusion-tadd"
+            "(add Field Field (Σ i lo hi f) (Σ i lo hi g))",
+            "(Σ i lo hi (add Field Field f g))",
+            &rules, "sigma-fusion-add"
         );
     }
 
     #[test]
     fn test_typed_sigma_unroll_2() {
-        let rules = typed_sigma_unroll_rules();
-        // After unrolling, Σ i 0 2 body should produce (tadd T T (let i 0 body) (let i 1 body))
+        let rules = sigma_unroll_rules();
+        // After unrolling, Σ i 0 2 body should produce (add T T (let i 0 body) (let i 1 body))
         // The body type is Unknown (symbol 'a' has Unknown type), so the applier may not fire.
         // Use a body with known type (e.g., contains Int literal) to test.
-        let e1: RecExpr<ArkLang> = "(Σ i 0 2 (tselect Int (mkarray 10 20) i))".parse().unwrap();
+        let e1: RecExpr<ArkLang> = "(Σ i 0 2 (select Int (mkarray 10 20) i))".parse().unwrap();
         let mut egraph: EGraph<ArkLang, TypeAnalysis> = EGraph::default();
         let id1 = egraph.add_expr(&e1);
         let runner = Runner::<ArkLang, TypeAnalysis>::default()
@@ -356,8 +356,8 @@ mod tests {
 
     #[test]
     fn test_typed_sigma_unroll_3() {
-        let rules = typed_sigma_unroll_rules();
-        let e1: RecExpr<ArkLang> = "(Σ i 0 3 (tselect Int (mkarray 10 20 30) i))".parse().unwrap();
+        let rules = sigma_unroll_rules();
+        let e1: RecExpr<ArkLang> = "(Σ i 0 3 (select Int (mkarray 10 20 30) i))".parse().unwrap();
         let mut egraph: EGraph<ArkLang, TypeAnalysis> = EGraph::default();
         let id1 = egraph.add_expr(&e1);
         let runner = Runner::<ArkLang, TypeAnalysis>::default()
@@ -372,92 +372,92 @@ mod tests {
 
     #[test]
     fn test_double_tneg() {
-        let rules = typed_arith_rules();
-        let simplified = simplify("(tneg Field (tneg Field x))", &rules);
+        let rules = arith_rules();
+        let simplified = simplify("(neg Field (neg Field x))", &rules);
         assert_eq!(simplified, "x");
     }
 
     #[test]
-    fn test_tmul_comm() {
-        let rules = typed_arith_rules();
+    fn test_mul_comm() {
+        let rules = arith_rules();
         assert_merge(
-            "(tmul Field Field x y)",
-            "(tmul Field Field y x)",
-            &rules, "tmul-comm"
+            "(mul Field Field x y)",
+            "(mul Field Field y x)",
+            &rules, "mul-comm"
         );
     }
 
     #[test]
-    fn test_tmul_assoc() {
-        let rules = typed_arith_rules();
+    fn test_mul_assoc() {
+        let rules = arith_rules();
         assert_merge(
-            "(tmul Field Field a (tmul Field Field b c))",
-            "(tmul Field Field (tmul Field Field a b) c)",
-            &rules, "tmul-assoc"
+            "(mul Field Field a (mul Field Field b c))",
+            "(mul Field Field (mul Field Field a b) c)",
+            &rules, "mul-assoc"
         );
     }
 
     #[test]
-    fn test_tmul_dist() {
+    fn test_mul_dist() {
         let rules = all_rules();
         assert_merge(
-            "(tmul Field Field a (tadd Field Field b c))",
-            "(tadd Field Field (tmul Field Field a b) (tmul Field Field a c))",
-            &rules, "tmul-dist"
+            "(mul Field Field a (add Field Field b c))",
+            "(add Field Field (mul Field Field a b) (mul Field Field a c))",
+            &rules, "mul-dist"
         );
     }
 
     #[test]
-    fn test_tscale_one() {
-        let rules = typed_arith_rules();
-        let simplified = simplify("(tscale Field 1 x)", &rules);
+    fn test_scale_one() {
+        let rules = arith_rules();
+        let simplified = simplify("(scale Field 1 x)", &rules);
         assert_eq!(simplified, "x");
     }
 
     #[test]
-    fn test_tscale_zero() {
-        let rules = typed_arith_rules();
-        let simplified = simplify("(tscale Field 0 x)", &rules);
+    fn test_scale_zero() {
+        let rules = arith_rules();
+        let simplified = simplify("(scale Field 0 x)", &rules);
         assert_eq!(simplified, "0");
     }
 
     #[test]
-    fn test_tscale_dist() {
+    fn test_scale_dist() {
         let rules = all_rules();
         assert_merge(
-            "(tscale Field c (tadd Field Field a b))",
-            "(tadd Field Field (tscale Field c a) (tscale Field c b))",
-            &rules, "tscale-dist"
+            "(scale Field c (add Field Field a b))",
+            "(add Field Field (scale Field c a) (scale Field c b))",
+            &rules, "scale-dist"
         );
     }
 
     #[test]
     fn test_sigma_factor_tscale() {
-        let rules = typed_guarded_arith_rules();
+        let rules = guarded_arith_rules();
         assert_merge(
-            "(Σ i 0 N (tscale Field c (tselect Int arr i)))",
-            "(tscale Field c (Σ i 0 N (tselect Int arr i)))",
-            &rules, "sigma-factor-tscale"
+            "(Σ i 0 N (scale Field c (select Int arr i)))",
+            "(scale Field c (Σ i 0 N (select Int arr i)))",
+            &rules, "sigma-factor-scale"
         );
     }
 
     #[test]
     fn test_sigma_factor_tscale_blocked() {
-        let rules = typed_guarded_arith_rules();
+        let rules = guarded_arith_rules();
         assert_no_merge(
-            "(Σ i 0 N (tscale Field i (tselect Int arr i)))",
-            "(tscale Field i (Σ i 0 N (tselect Int arr i)))",
-            &rules, "sigma-factor-tscale should NOT fire when scalar depends on loop var"
+            "(Σ i 0 N (scale Field i (select Int arr i)))",
+            "(scale Field i (Σ i 0 N (select Int arr i)))",
+            &rules, "sigma-factor-scale should NOT fire when scalar depends on loop var"
         );
     }
 
     #[test]
     fn test_sigma_factor_tmul() {
-        let rules = typed_guarded_arith_rules();
+        let rules = guarded_arith_rules();
         assert_merge(
-            "(Σ i 0 N (tmul Field Field c (tselect Int arr i)))",
-            "(tmul Field Field c (Σ i 0 N (tselect Int arr i)))",
-            &rules, "sigma-factor-tmul"
+            "(Σ i 0 N (mul Field Field c (select Int arr i)))",
+            "(mul Field Field c (Σ i 0 N (select Int arr i)))",
+            &rules, "sigma-factor-mul"
         );
     }
 
@@ -466,48 +466,48 @@ mod tests {
     // ═══════════════════════════════════════════════
 
     #[test]
-    fn test_teval_tadd_distribution() {
-        let rules = typed_eval_rules();
+    fn test_eval_tadd_distribution() {
+        let rules = eval_rules();
         assert_merge(
-            "(teval DensePoly (tadd DensePoly DensePoly p q) x)",
-            "(tadd Field Field (teval DensePoly p x) (teval DensePoly q x))",
-            &rules, "teval-tadd"
+            "(eval DensePoly (add DensePoly DensePoly p q) x)",
+            "(add Field Field (eval DensePoly p x) (eval DensePoly q x))",
+            &rules, "eval-add"
         );
     }
 
     #[test]
-    fn test_teval_tneg_distribution() {
-        let rules = typed_eval_rules();
+    fn test_eval_tneg_distribution() {
+        let rules = eval_rules();
         assert_merge(
-            "(teval DensePoly (tneg DensePoly p) x)",
-            "(tneg Field (teval DensePoly p x))",
-            &rules, "teval-tneg"
+            "(eval DensePoly (neg DensePoly p) x)",
+            "(neg Field (eval DensePoly p x))",
+            &rules, "eval-neg"
         );
     }
 
     #[test]
-    fn test_teval_tscale_distribution() {
-        let rules = typed_eval_rules();
+    fn test_eval_tscale_distribution() {
+        let rules = eval_rules();
         assert_merge(
-            "(teval DensePoly (tscale DensePoly c p) x)",
-            "(tmul Field Field c (teval DensePoly p x))",
-            &rules, "teval-tscale"
+            "(eval DensePoly (scale DensePoly c p) x)",
+            "(mul Field Field c (eval DensePoly p x))",
+            &rules, "eval-scale"
         );
     }
 
     #[test]
-    fn test_teval_tmul_distribution() {
-        let rules = typed_eval_rules();
+    fn test_eval_tmul_distribution() {
+        let rules = eval_rules();
         assert_merge(
-            "(teval DensePoly (tmul DensePoly DensePoly p q) x)",
-            "(tmul Field Field (teval DensePoly p x) (teval DensePoly q x))",
-            &rules, "teval-tmul"
+            "(eval DensePoly (mul DensePoly DensePoly p q) x)",
+            "(mul Field Field (eval DensePoly p x) (eval DensePoly q x))",
+            &rules, "eval-mul"
         );
     }
 
     #[test]
     fn test_coerce_dense_sparse_roundtrip() {
-        let rules = typed_conversion_rules();
+        let rules = conversion_rules();
         let simplified = simplify(
             "(coerce DensePoly SparsePoly (coerce SparsePoly DensePoly p))",
             &rules
@@ -517,7 +517,7 @@ mod tests {
 
     #[test]
     fn test_coerce_sparse_dense_roundtrip() {
-        let rules = typed_conversion_rules();
+        let rules = conversion_rules();
         let simplified = simplify(
             "(coerce SparsePoly DensePoly (coerce DensePoly SparsePoly p))",
             &rules
@@ -527,7 +527,7 @@ mod tests {
 
     #[test]
     fn test_coerce_mle_poly_roundtrip() {
-        let rules = typed_conversion_rules();
+        let rules = conversion_rules();
         let simplified = simplify(
             "(coerce DensePoly DenseMLE (coerce DenseMLE DensePoly p))",
             &rules
@@ -536,32 +536,32 @@ mod tests {
     }
 
     #[test]
-    fn test_tifft_tfft_roundtrip_rule() {
-        let rules = typed_conversion_rules();
+    fn test_ifft_tfft_roundtrip_rule() {
+        let rules = conversion_rules();
         let simplified = simplify(
-            "(tifft Array n (tfft DensePoly n p))",
+            "(ifft Array n (fft DensePoly n p))",
             &rules
         );
         assert_eq!(simplified, "p");
     }
 
     #[test]
-    fn test_tfft_tifft_roundtrip_rule() {
-        let rules = typed_conversion_rules();
+    fn test_fft_tifft_roundtrip_rule() {
+        let rules = conversion_rules();
         let simplified = simplify(
-            "(tfft DensePoly n (tifft Array n e))",
+            "(fft DensePoly n (ifft Array n e))",
             &rules
         );
         assert_eq!(simplified, "e");
     }
 
     #[test]
-    fn test_taadd_comm() {
-        let rules = typed_conversion_rules();
+    fn test_aadd_comm() {
+        let rules = conversion_rules();
         assert_merge(
-            "(taadd Field a b)",
-            "(taadd Field b a)",
-            &rules, "taadd-comm"
+            "(aadd Field a b)",
+            "(aadd Field b a)",
+            &rules, "aadd-comm"
         );
     }
 }
