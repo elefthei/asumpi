@@ -11,6 +11,24 @@ use ark_poly::{
 };
 use std::fmt;
 
+/// Type tags for arkΣΠ values (also used in analysis).
+/// Defined here to avoid circular dependencies.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum ArkType {
+    Int,
+    Field,
+    Curve,
+    DensePoly,
+    SparsePoly,
+    DenseMLE,
+    SparseMLE,
+    MVPoly,
+    Array,
+    Pair,
+    Bool,
+    Unknown,
+}
+
 /// Runtime value produced by evaluating an arkΣΠ expression.
 #[derive(Clone, Debug)]
 pub enum Value {
@@ -39,6 +57,23 @@ pub enum Value {
 }
 
 impl Value {
+    /// Map this value to its ArkType tag.
+    pub fn ark_type(&self) -> ArkType {
+        match self {
+            Value::Field(_) => ArkType::Field,
+            Value::Curve(_) => ArkType::Curve,
+            Value::Array(_) => ArkType::Array,
+            Value::Polynomial(_) => ArkType::DensePoly,
+            Value::MLE(_) => ArkType::DenseMLE,
+            Value::MVPoly(_) => ArkType::MVPoly,
+            Value::SparseUVPoly(_) => ArkType::SparsePoly,
+            Value::SparseMLE(_) => ArkType::SparseMLE,
+            Value::Pair(_, _) => ArkType::Pair,
+            Value::Bool(_) => ArkType::Bool,
+            Value::Int(_) => ArkType::Int,
+        }
+    }
+
     /// Extract as field element, coercing Int → Fr automatically.
     pub fn as_field(&self) -> Result<Fr, EvalError> {
         match self {

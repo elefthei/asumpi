@@ -17,8 +17,8 @@ use ark_poly::{
 };
 use egg::{Id, RecExpr, Symbol};
 
-use crate::language::ArkLang;
-use crate::value::{EvalError, Value, check_homogeneous, int_to_fr};
+use crate::language::{ArkLang, tag_to_type};
+use crate::value::{ArkType, EvalError, Value, check_homogeneous, int_to_fr};
 
 /// Environment mapping variable names to values.
 pub type Env = HashMap<Symbol, Value>;
@@ -518,6 +518,218 @@ fn eval_id(expr: &RecExpr<ArkLang>, id: Id, env: &Env) -> Result<Value, EvalErro
             let vb = eval_id(expr, *b, env)?.as_field()?;
             Ok(Value::Bool(va == vb))
         }
+
+        // ── Type Tags (not directly evaluable) ──
+        ArkLang::TField | ArkLang::TCurve | ArkLang::TInt | ArkLang::TBool
+        | ArkLang::TDensePoly | ArkLang::TSparsePoly | ArkLang::TDenseMLE
+        | ArkLang::TSparseMLE | ArkLang::TMVPoly | ArkLang::TArray | ArkLang::TPair => {
+            Err(EvalError::TypeError("type tags cannot be evaluated directly".into()))
+        }
+
+        // ── Coerce ──
+        ArkLang::Coerce([src, dst, x]) => {
+            let src_ty = resolve_type_tag(expr, *src)?;
+            let dst_ty = resolve_type_tag(expr, *dst)?;
+            let val = eval_id(expr, *x, env)?;
+            validate_type(&val, src_ty)?;
+            eval_coerce(src_ty, dst_ty, val)
+        }
+    }
+}
+
+/// Resolve a type-tag AST node to its ArkType.
+fn resolve_type_tag(expr: &RecExpr<ArkLang>, id: Id) -> Result<ArkType, EvalError> {
+    tag_to_type(&expr[id]).ok_or_else(|| {
+        EvalError::TypeError(format!(
+            "expected a type tag (Field, Curve, Int, ...), got {:?}",
+            expr[id]
+        ))
+    })
+}
+
+/// Validate that a runtime value matches the expected type tag.
+fn validate_type(val: &Value, expected: ArkType) -> Result<(), EvalError> {
+    let actual = val.ark_type();
+    if actual == expected {
+        Ok(())
+    } else {
+        Err(EvalError::TypeMismatch {
+            expected: format!("{:?}", expected),
+            got: format!("{:?} ({})", actual, val.type_name()),
+        })
+    }
+}
+
+/// Perform an explicit type coercion.
+fn eval_coerce(src: ArkType, dst: ArkType, val: Value) -> Result<Value, EvalError> {
+    use ArkType::*;
+    match (src, dst) {
+        // Identity
+        (s, d) if s == d => Ok(val),
+
+        // ── Embedding: Int → Field ──
+        (Int, Field) => {
+            let n = val.as_int()?;
+            Ok(Value::Field(int_to_fr(n)))
+        }
+
+        // ── Embedding: Int → polynomial types (via Field) ──
+        (Int, DensePoly) => {
+            let n = val.as_int()?;
+            let c = int_to_fr(n);
+            Ok(Value::Polynomial(DensePolynomial::from_coefficients_vec(vec![c])))
+        }
+        (Int, SparsePoly) => {
+            let n = val.as_int()?;
+            let c = int_to_fr(n);
+            if c.is_zero() {
+                Ok(Value::SparseUVPoly(SparseUVPolynomial::from_coefficients_vec(vec![])))
+            } else {
+                Ok(Value::SparseUVPoly(SparseUVPolynomial::from_coefficients_vec(vec![(0, c)])))
+            }
+        }
+        (Int, DenseMLE) => {
+            let n = val.as_int()?;
+            let c = int_to_fr(n);
+            Ok(Value::MLE(DenseMultilinearExtension::from_evaluations_vec(1, vec![c, c])))
+        }
+        (Int, SparseMLE) => {
+            let n = val.as_int()?;
+            let c = int_to_fr(n);
+            let evals = if c.is_zero() { vec![] } else { vec![(0, c), (1, c)] };
+            Ok(Value::SparseMLE(SparseMultilinearExtension::from_evaluations(1, &evals)))
+        }
+        (Int, MVPoly) => {
+            let n = val.as_int()?;
+            let c = int_to_fr(n);
+            Ok(Value::MVPoly(MVSparsePolynomial::from_coefficients_vec(
+                1, vec![(c, SparseTerm::new(vec![]))]
+            )))
+        }
+
+        // ── Embedding: Field → polynomial types ──
+        (Field, DensePoly) => {
+            let c = val.as_field()?;
+            Ok(Value::Polynomial(DensePolynomial::from_coefficients_vec(vec![c])))
+        }
+        (Field, SparsePoly) => {
+            let c = val.as_field()?;
+            if c.is_zero() {
+                Ok(Value::SparseUVPoly(SparseUVPolynomial::from_coefficients_vec(vec![])))
+            } else {
+                Ok(Value::SparseUVPoly(SparseUVPolynomial::from_coefficients_vec(vec![(0, c)])))
+            }
+        }
+        (Field, DenseMLE) => {
+            let c = val.as_field()?;
+            Ok(Value::MLE(DenseMultilinearExtension::from_evaluations_vec(1, vec![c, c])))
+        }
+        (Field, SparseMLE) => {
+            let c = val.as_field()?;
+            let evals = if c.is_zero() { vec![] } else { vec![(0, c), (1, c)] };
+            Ok(Value::SparseMLE(SparseMultilinearExtension::from_evaluations(1, &evals)))
+        }
+        (Field, MVPoly) => {
+            let c = val.as_field()?;
+            Ok(Value::MVPoly(MVSparsePolynomial::from_coefficients_vec(
+                1, vec![(c, SparseTerm::new(vec![]))]
+            )))
+        }
+
+        // ── Representation change: Dense ↔ Sparse (univariate) ──
+        (SparsePoly, DensePoly) => {
+            // was: densify for SparseUVPoly
+            let p = val.as_sparse_uv_poly()?;
+            let deg = p.degree();
+            let mut coeffs = vec![Fr::zero(); deg + 1];
+            for (i, c) in p.to_vec().iter() {
+                if *i <= deg { coeffs[*i] = *c; }
+            }
+            Ok(Value::Polynomial(DensePolynomial::from_coefficients_vec(coeffs)))
+        }
+        (DensePoly, SparsePoly) => {
+            // was: sparsify for DensePolynomial
+            let p = val.as_polynomial()?;
+            let sparse_coeffs: Vec<(usize, Fr)> = p.coeffs.iter()
+                .enumerate()
+                .filter(|(_, c)| !c.is_zero())
+                .map(|(i, c)| (i, *c))
+                .collect();
+            Ok(Value::SparseUVPoly(SparseUVPolynomial::from_coefficients_vec(sparse_coeffs)))
+        }
+
+        // ── Representation change: Dense ↔ Sparse (MLE) ──
+        (SparseMLE, DenseMLE) => {
+            // was: densify for SparseMLE
+            let m = val.as_sparse_mle()?;
+            let nv = m.num_vars();
+            let evals = m.to_evaluations();
+            Ok(Value::MLE(DenseMultilinearExtension::from_evaluations_vec(nv, evals)))
+        }
+        (DenseMLE, SparseMLE) => {
+            // was: sparsify for DenseMLE
+            let m = val.as_mle()?;
+            let nv = m.num_vars();
+            let sparse_evals: Vec<(usize, Fr)> = m.to_evaluations().iter()
+                .enumerate()
+                .filter(|(_, v)| !v.is_zero())
+                .map(|(i, v)| (i, *v))
+                .collect();
+            Ok(Value::SparseMLE(SparseMultilinearExtension::from_evaluations(nv, &sparse_evals)))
+        }
+
+        // ── Domain change: UV ↔ MLE ──
+        (DenseMLE, DensePoly) => {
+            // was: as-uv for DenseMLE
+            let m = val.as_mle()?;
+            if m.num_vars() != 1 {
+                return Err(EvalError::TypeError(format!(
+                    "coerce DenseMLE→DensePoly: MLE must have 1 variable, got {}", m.num_vars()
+                )));
+            }
+            let evals = m.to_evaluations();
+            let c0 = evals[0];
+            let c1 = evals[1] - evals[0];
+            Ok(Value::Polynomial(DensePolynomial::from_coefficients_vec(vec![c0, c1])))
+        }
+        (SparseMLE, SparsePoly) => {
+            // was: as-uv for SparseMLE
+            let m = val.as_sparse_mle()?;
+            if m.num_vars() != 1 {
+                return Err(EvalError::TypeError(format!(
+                    "coerce SparseMLE→SparsePoly: MLE must have 1 variable, got {}", m.num_vars()
+                )));
+            }
+            let evals = m.to_evaluations();
+            let c0 = evals[0];
+            let c1 = evals[1] - evals[0];
+            let mut terms = Vec::new();
+            if !c0.is_zero() { terms.push((0, c0)); }
+            if !c1.is_zero() { terms.push((1, c1)); }
+            Ok(Value::SparseUVPoly(SparseUVPolynomial::from_coefficients_vec(terms)))
+        }
+        (DensePoly, DenseMLE) => {
+            // was: as-mle for DensePolynomial
+            let p = val.as_polynomial()?;
+            let v0 = p.evaluate(&Fr::from(0u64));
+            let v1 = p.evaluate(&Fr::from(1u64));
+            Ok(Value::MLE(DenseMultilinearExtension::from_evaluations_vec(1, vec![v0, v1])))
+        }
+        (SparsePoly, SparseMLE) => {
+            // was: as-mle for SparseUVPolynomial
+            let p = val.as_sparse_uv_poly()?;
+            let v0 = Polynomial::evaluate(&p, &Fr::from(0u64));
+            let v1 = Polynomial::evaluate(&p, &Fr::from(1u64));
+            let mut evals = Vec::new();
+            if !v0.is_zero() { evals.push((0, v0)); }
+            if !v1.is_zero() { evals.push((1, v1)); }
+            Ok(Value::SparseMLE(SparseMultilinearExtension::from_evaluations(1, &evals)))
+        }
+
+        // ── Invalid coercion ──
+        _ => Err(EvalError::TypeError(format!(
+            "coerce: no valid coercion from {:?} to {:?}", src, dst
+        ))),
     }
 }
 
@@ -1760,5 +1972,231 @@ mod tests {
         let v = eval_str("(aadd (mkarray) (mkarray 1 2))", &env).unwrap().as_array().unwrap();
         assert_eq!(v.len(), 2);
         assert_eq!(v[0].as_field().unwrap(), Fr::from(1u64));
+    }
+
+    // ═══════════════════════════════════════════════
+    // Wave 0: Type tags, coerce, and helpers
+    // ═══════════════════════════════════════════════
+
+    #[test]
+    fn test_type_tag_not_evaluable() {
+        let env = empty_env();
+        assert!(eval_str("Field", &env).is_err());
+        assert!(eval_str("Int", &env).is_err());
+        assert!(eval_str("DensePoly", &env).is_err());
+    }
+
+    #[test]
+    fn test_coerce_int_to_field() {
+        let env = empty_env();
+        let v = eval_str("(coerce Int Field 42)", &env).unwrap();
+        assert_eq!(v.as_field().unwrap(), Fr::from(42u64));
+    }
+
+    #[test]
+    fn test_coerce_int_to_field_negative() {
+        let env = empty_env();
+        let v = eval_str("(coerce Int Field -3)", &env).unwrap();
+        assert_eq!(v.as_field().unwrap(), -Fr::from(3u64));
+    }
+
+    #[test]
+    fn test_coerce_identity() {
+        let env = empty_env();
+        let v = eval_str("(coerce Field Field (add 3 7))", &env).unwrap();
+        assert_eq!(v.as_field().unwrap(), Fr::from(10u64));
+    }
+
+    #[test]
+    fn test_coerce_field_to_dense_poly() {
+        let env = empty_env();
+        let v = eval_str("(coerce Field DensePoly (add 1 2))", &env).unwrap();
+        let p = v.as_polynomial().unwrap();
+        assert_eq!(p.evaluate(&Fr::from(0u64)), Fr::from(3u64));
+        assert_eq!(p.evaluate(&Fr::from(99u64)), Fr::from(3u64)); // constant poly
+    }
+
+    #[test]
+    fn test_coerce_field_to_sparse_poly() {
+        let env = empty_env();
+        let v = eval_str("(coerce Field SparsePoly (add 2 3))", &env).unwrap();
+        let p = v.as_sparse_uv_poly().unwrap();
+        assert_eq!(Polynomial::evaluate(&p, &Fr::from(0u64)), Fr::from(5u64));
+    }
+
+    #[test]
+    fn test_coerce_field_to_dense_mle() {
+        let env = empty_env();
+        let v = eval_str("(coerce Field DenseMLE (add 1 1))", &env).unwrap();
+        let m = v.as_mle().unwrap();
+        assert_eq!(m.num_vars(), 1);
+        // constant MLE: evaluates to 2 everywhere
+        assert_eq!(m.evaluate(&vec![Fr::from(0u64)]), Fr::from(2u64));
+        assert_eq!(m.evaluate(&vec![Fr::from(1u64)]), Fr::from(2u64));
+    }
+
+    #[test]
+    fn test_coerce_field_to_sparse_mle() {
+        let env = empty_env();
+        let v = eval_str("(coerce Field SparseMLE (add 3 4))", &env).unwrap();
+        let m = v.as_sparse_mle().unwrap();
+        assert_eq!(m.num_vars(), 1);
+        assert_eq!(m.evaluate(&vec![Fr::from(0u64)]), Fr::from(7u64));
+    }
+
+    #[test]
+    fn test_coerce_field_to_mvpoly() {
+        let env = empty_env();
+        let v = eval_str("(coerce Field MVPoly (add 5 6))", &env).unwrap();
+        let p = v.as_mvpoly().unwrap();
+        assert_eq!(p.evaluate(&vec![Fr::from(99u64)]), Fr::from(11u64)); // constant
+    }
+
+    #[test]
+    fn test_coerce_int_to_dense_poly() {
+        let env = empty_env();
+        let v = eval_str("(coerce Int DensePoly 7)", &env).unwrap();
+        let p = v.as_polynomial().unwrap();
+        assert_eq!(p.evaluate(&Fr::from(42u64)), Fr::from(7u64)); // constant poly
+    }
+
+    #[test]
+    fn test_coerce_int_to_sparse_poly() {
+        let env = empty_env();
+        let v = eval_str("(coerce Int SparsePoly 5)", &env).unwrap();
+        let p = v.as_sparse_uv_poly().unwrap();
+        assert_eq!(Polynomial::evaluate(&p, &Fr::from(0u64)), Fr::from(5u64));
+    }
+
+    #[test]
+    fn test_coerce_int_to_dense_mle() {
+        let env = empty_env();
+        let v = eval_str("(coerce Int DenseMLE 9)", &env).unwrap();
+        let m = v.as_mle().unwrap();
+        assert_eq!(m.evaluate(&vec![Fr::from(0u64)]), Fr::from(9u64));
+    }
+
+    #[test]
+    fn test_coerce_int_to_sparse_mle() {
+        let env = empty_env();
+        let v = eval_str("(coerce Int SparseMLE 4)", &env).unwrap();
+        let m = v.as_sparse_mle().unwrap();
+        assert_eq!(m.evaluate(&vec![Fr::from(1u64)]), Fr::from(4u64));
+    }
+
+    #[test]
+    fn test_coerce_int_to_mvpoly() {
+        let env = empty_env();
+        let v = eval_str("(coerce Int MVPoly 3)", &env).unwrap();
+        let p = v.as_mvpoly().unwrap();
+        assert_eq!(p.evaluate(&vec![Fr::from(0u64)]), Fr::from(3u64));
+    }
+
+    #[test]
+    fn test_coerce_sparse_to_dense_poly() {
+        let env = empty_env();
+        // sparse poly 5 + 3x^2
+        let v = eval_str("(coerce SparsePoly DensePoly (poly:suv 0 5 2 3))", &env).unwrap();
+        let p = v.as_polynomial().unwrap();
+        assert_eq!(p.evaluate(&Fr::from(2u64)), Fr::from(17u64)); // 5 + 3*4
+    }
+
+    #[test]
+    fn test_coerce_dense_to_sparse_poly() {
+        let env = empty_env();
+        let v = eval_str("(coerce DensePoly SparsePoly (poly:duv 5 0 3))", &env).unwrap();
+        let p = v.as_sparse_uv_poly().unwrap();
+        assert_eq!(Polynomial::evaluate(&p, &Fr::from(2u64)), Fr::from(17u64)); // 5 + 3*4
+    }
+
+    #[test]
+    fn test_coerce_dense_mle_to_dense_poly() {
+        let env = empty_env();
+        // 1-var MLE with evals [3, 7] → linear poly c0=3, c1=4 → 3+4x
+        let v = eval_str("(coerce DenseMLE DensePoly (poly:dmle 1 (mkarray 3 7)))", &env).unwrap();
+        let p = v.as_polynomial().unwrap();
+        assert_eq!(p.evaluate(&Fr::from(0u64)), Fr::from(3u64));
+        assert_eq!(p.evaluate(&Fr::from(1u64)), Fr::from(7u64));
+    }
+
+    #[test]
+    fn test_coerce_dense_poly_to_dense_mle() {
+        let env = empty_env();
+        let v = eval_str("(coerce DensePoly DenseMLE (poly:duv 3 4))", &env).unwrap();
+        let m = v.as_mle().unwrap();
+        assert_eq!(m.evaluate(&vec![Fr::from(0u64)]), Fr::from(3u64));
+        assert_eq!(m.evaluate(&vec![Fr::from(1u64)]), Fr::from(7u64));
+    }
+
+    #[test]
+    fn test_coerce_sparse_mle_to_dense_mle() {
+        let env = empty_env();
+        // 2-var sparse MLE: index 0→3, index 3→7
+        let v = eval_str("(coerce SparseMLE DenseMLE (poly:smle 2 (mkarray 0 3 3 7)))", &env).unwrap();
+        let m = v.as_mle().unwrap();
+        assert_eq!(m.num_vars(), 2);
+    }
+
+    #[test]
+    fn test_coerce_dense_mle_to_sparse_mle() {
+        let env = empty_env();
+        let v = eval_str("(coerce DenseMLE SparseMLE (poly:dmle 1 (mkarray 0 5)))", &env).unwrap();
+        let m = v.as_sparse_mle().unwrap();
+        assert_eq!(m.num_vars(), 1);
+        assert_eq!(m.evaluate(&vec![Fr::from(1u64)]), Fr::from(5u64));
+    }
+
+    #[test]
+    fn test_coerce_sparse_mle_to_sparse_poly() {
+        let env = empty_env();
+        // 1-var sparse MLE: index 0→3, index 1→7 → linear poly 3+4x
+        let v = eval_str("(coerce SparseMLE SparsePoly (poly:smle 1 (mkarray 0 3 1 7)))", &env).unwrap();
+        let p = v.as_sparse_uv_poly().unwrap();
+        assert_eq!(Polynomial::evaluate(&p, &Fr::from(0u64)), Fr::from(3u64));
+        assert_eq!(Polynomial::evaluate(&p, &Fr::from(1u64)), Fr::from(7u64));
+    }
+
+    #[test]
+    fn test_coerce_sparse_poly_to_sparse_mle() {
+        let env = empty_env();
+        let v = eval_str("(coerce SparsePoly SparseMLE (poly:suv 0 3 1 4))", &env).unwrap();
+        let m = v.as_sparse_mle().unwrap();
+        assert_eq!(m.num_vars(), 1);
+        assert_eq!(m.evaluate(&vec![Fr::from(0u64)]), Fr::from(3u64));
+        assert_eq!(m.evaluate(&vec![Fr::from(1u64)]), Fr::from(7u64));
+    }
+
+    #[test]
+    fn test_coerce_invalid_curve_to_field() {
+        let env = empty_env();
+        assert!(eval_str("(coerce Curve Field 5)", &env).is_err());
+    }
+
+    #[test]
+    fn test_coerce_type_mismatch() {
+        let env = empty_env();
+        // Value is Int(5) but src tag says Field → type mismatch
+        assert!(eval_str("(coerce Field DensePoly 5)", &env).is_err());
+    }
+
+    #[test]
+    fn test_coerce_chained() {
+        let env = empty_env();
+        // Int → Field → DensePoly via two coerces
+        let v = eval_str("(coerce Field DensePoly (coerce Int Field 3))", &env).unwrap();
+        let p = v.as_polynomial().unwrap();
+        assert_eq!(p.evaluate(&Fr::from(99u64)), Fr::from(3u64));
+    }
+
+    #[test]
+    fn test_validate_type_helper() {
+        let v = Value::Field(Fr::from(42u64));
+        assert!(validate_type(&v, ArkType::Field).is_ok());
+        assert!(validate_type(&v, ArkType::Int).is_err());
+        assert!(validate_type(&v, ArkType::Curve).is_err());
+
+        let vi = Value::Int(7);
+        assert!(validate_type(&vi, ArkType::Int).is_ok());
+        assert!(validate_type(&vi, ArkType::Field).is_err());
     }
 }

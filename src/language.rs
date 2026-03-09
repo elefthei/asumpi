@@ -75,8 +75,45 @@ define_language! {
         // ── Comparison (1) ──
         "eq" = Eq([Id; 2]),
 
+        // ── Type Tags (leaf nodes for explicit typing) ──
+        // Must be before Symbol so the parser matches them first.
+        "Field"      = TField,
+        "Curve"      = TCurve,
+        "Int"        = TInt,
+        "Bool"       = TBool,
+        "DensePoly"  = TDensePoly,
+        "SparsePoly" = TSparsePoly,
+        "DenseMLE"   = TDenseMLE,
+        "SparseMLE"  = TSparseMLE,
+        "MVPoly"     = TMVPoly,
+        "Array"      = TArray,
+        "Pair"       = TPair,
+
+        // ── Typed Operations (coexist with untyped during migration) ──
+        "coerce" = Coerce([Id; 3]),
+
         // ── Variable Reference ──
         Symbol(egg::Symbol),
+    }
+}
+
+use crate::value::ArkType;
+
+/// Convert a type-tag AST node to its corresponding ArkType.
+pub fn tag_to_type(node: &ArkLang) -> Option<ArkType> {
+    match node {
+        ArkLang::TField     => Some(ArkType::Field),
+        ArkLang::TCurve     => Some(ArkType::Curve),
+        ArkLang::TInt       => Some(ArkType::Int),
+        ArkLang::TBool      => Some(ArkType::Bool),
+        ArkLang::TDensePoly => Some(ArkType::DensePoly),
+        ArkLang::TSparsePoly=> Some(ArkType::SparsePoly),
+        ArkLang::TDenseMLE  => Some(ArkType::DenseMLE),
+        ArkLang::TSparseMLE => Some(ArkType::SparseMLE),
+        ArkLang::TMVPoly    => Some(ArkType::MVPoly),
+        ArkLang::TArray     => Some(ArkType::Array),
+        ArkLang::TPair      => Some(ArkType::Pair),
+        _ => None,
     }
 }
 

@@ -7,23 +7,7 @@ use egg::*;
 use std::collections::HashSet;
 
 use crate::language::ArkLang;
-
-/// Type tags for arkΣΠ values.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum ArkType {
-    Int,
-    Field,
-    Curve,
-    DensePoly,
-    SparsePoly,
-    DenseMLE,
-    SparseMLE,
-    MVPoly,
-    Array,
-    Pair,
-    Bool,
-    Unknown,
-}
+use crate::value::ArkType;
 
 /// Per-e-class analysis data: possible types and free variables.
 #[derive(Debug, Clone)]
@@ -276,6 +260,24 @@ impl Analysis<ArkLang> for TypeAnalysis {
                 free_vars.extend(&cd(a).free_vars);
                 free_vars.extend(&cd(b).free_vars);
                 types.insert(ArkType::Bool);
+            }
+
+            // ── Type Tags (leaf nodes, no children) ──
+            ArkLang::TField | ArkLang::TCurve | ArkLang::TInt | ArkLang::TBool
+            | ArkLang::TDensePoly | ArkLang::TSparsePoly | ArkLang::TDenseMLE
+            | ArkLang::TSparseMLE | ArkLang::TMVPoly | ArkLang::TArray | ArkLang::TPair => {
+                // Type tags carry no type information and no free vars
+            }
+
+            // ── Coerce ──
+            ArkLang::Coerce([_src, dst, x]) => {
+                free_vars.extend(&cd(x).free_vars);
+                // Output type is determined by the destination type tag
+                if let Some(ty) = crate::language::tag_to_type(&egraph[*dst].nodes[0]) {
+                    types.insert(ty);
+                } else {
+                    types.insert(ArkType::Unknown);
+                }
             }
         }
 
