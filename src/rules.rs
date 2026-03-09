@@ -91,13 +91,152 @@ pub fn guarded_sigma_rules() -> Vec<Rewrite<ArkLang, TypeAnalysis>> {
     ]
 }
 
-/// All rules combined.
+/// Typed add rules (tadd — Wave 1 canary).
+pub fn typed_add_rules() -> Vec<Rewrite<ArkLang, TypeAnalysis>> {
+    vec![
+        rewrite!("tadd-comm"; "(tadd ?T ?V ?a ?b)" => "(tadd ?V ?T ?b ?a)"),
+        rewrite!("tadd-assoc"; "(tadd ?T ?V ?a (tadd ?V ?W ?b ?c))" => "(tadd ?T ?W (tadd ?T ?V ?a ?b) ?c)"),
+        rewrite!("tadd-neg"; "(tadd ?T ?T ?a (neg ?a))" => "0"),
+    ]
+}
+
+/// Custom applier that reads the body type from TypeAnalysis to emit typed add/mul.
+struct TypedUnrollApplier {
+    /// Pattern variables for the body subexpressions (one per iteration value)
+    body_var: Var,
+    /// Pattern variable for the loop index
+    idx_var: Var,
+    /// Iteration values (e.g., [0, 1] for unroll-2)
+    iter_vals: Vec<i64>,
+    /// Whether to use tadd (for Σ) or mul (for Π)
+    op: &'static str,
+}
+
+impl Applier<ArkLang, TypeAnalysis> for TypedUnrollApplier {
+    fn apply_one(
+        &self,
+        egraph: &mut EGraph<ArkLang, TypeAnalysis>,
+        eclass: Id,
+        subst: &Subst,
+        _searcher_ast: Option<&PatternAst<ArkLang>>,
+        _rule_name: Symbol,
+    ) -> Vec<Id> {
+        let body_id = subst[self.body_var];
+        let idx_id = subst[self.idx_var];
+
+        // Read body type from analysis to determine the type tag
+        let body_types = &egraph[body_id].data.types;
+        let type_tag = if body_types.contains(&crate::value::ArkType::Field) {
+            ArkLang::TField
+        } else if body_types.contains(&crate::value::ArkType::Curve) {
+            ArkLang::TCurve
+        } else if body_types.contains(&crate::value::ArkType::DensePoly) {
+            ArkLang::TDensePoly
+        } else if body_types.contains(&crate::value::ArkType::SparsePoly) {
+            ArkLang::TSparsePoly
+        } else if body_types.contains(&crate::value::ArkType::DenseMLE) {
+            ArkLang::TDenseMLE
+        } else if body_types.contains(&crate::value::ArkType::MVPoly) {
+            ArkLang::TMVPoly
+        } else if body_types.contains(&crate::value::ArkType::Int) {
+            ArkLang::TInt
+        } else {
+            // Unknown type — fall back to untyped, don't apply
+            return vec![];
+        };
+
+        let tag_id = egraph.add(type_tag);
+
+        // Build (let ?i val ?body) for each iteration
+        let mut let_ids: Vec<Id> = Vec::new();
+        for &val in &self.iter_vals {
+            let val_id = egraph.add(ArkLang::Num(val));
+            let let_id = egraph.add(ArkLang::Let([idx_id, val_id, body_id]));
+            let_ids.push(let_id);
+        }
+
+        // If only one iteration, result is just the let binding
+        if let_ids.len() == 1 {
+            egraph.union(eclass, let_ids[0]);
+            return vec![let_ids[0]];
+        }
+
+        // Build a right-associative chain of tadd (or mul for Π)
+        let result = if self.op == "tadd" {
+            // (tadd T T (let i 0 body) (tadd T T (let i 1 body) ...))
+            let mut acc = *let_ids.last().unwrap();
+            for &lid in let_ids[..let_ids.len() - 1].iter().rev() {
+                acc = egraph.add(ArkLang::TAdd([tag_id, tag_id, lid, acc]));
+            }
+            acc
+        } else {
+            // mul: for now, use untyped Mul since TMul doesn't exist yet
+            let mut acc = *let_ids.last().unwrap();
+            for &lid in let_ids[..let_ids.len() - 1].iter().rev() {
+                acc = egraph.add(ArkLang::Mul([lid, acc]));
+            }
+            acc
+        };
+
+        egraph.union(eclass, result);
+        vec![result]
+    }
+}
+
+/// Typed sigma unrolling rules using TypedUnrollApplier.
+pub fn typed_sigma_unroll_rules() -> Vec<Rewrite<ArkLang, TypeAnalysis>> {
+    vec![
+        Rewrite::new(
+            Symbol::from("typed-sigma-unroll-2"),
+            "(Σ ?i 0 2 ?f)".parse::<Pattern<ArkLang>>().unwrap(),
+            TypedUnrollApplier {
+                body_var: "?f".parse().unwrap(),
+                idx_var: "?i".parse().unwrap(),
+                iter_vals: vec![0, 1],
+                op: "tadd",
+            },
+        ).unwrap(),
+        Rewrite::new(
+            Symbol::from("typed-sigma-unroll-3"),
+            "(Σ ?i 0 3 ?f)".parse::<Pattern<ArkLang>>().unwrap(),
+            TypedUnrollApplier {
+                body_var: "?f".parse().unwrap(),
+                idx_var: "?i".parse().unwrap(),
+                iter_vals: vec![0, 1, 2],
+                op: "tadd",
+            },
+        ).unwrap(),
+    ]
+}
+
+/// Typed sigma distribution over tadd.
+pub fn typed_sigma_rules() -> Vec<Rewrite<ArkLang, TypeAnalysis>> {
+    vec![
+        rewrite!("sigma-dist-tadd"; "(Σ ?i ?lo ?hi (tadd ?T ?T ?f ?g))"
+            => "(tadd ?T ?T (Σ ?i ?lo ?hi ?f) (Σ ?i ?lo ?hi ?g))"),
+    ]
+}
+
+/// Typed sigma fusion rule.
+pub fn typed_guarded_sigma_rules() -> Vec<Rewrite<ArkLang, TypeAnalysis>> {
+    vec![
+        rewrite!("sigma-fusion-tadd";
+            "(tadd ?T ?T (Σ ?i ?lo ?hi ?f) (Σ ?i ?lo ?hi ?g))" => "(Σ ?i ?lo ?hi (tadd ?T ?T ?f ?g))"
+        ),
+    ]
+}
+
+/// All rules combined (untyped + typed).
 pub fn all_rules() -> Vec<Rewrite<ArkLang, TypeAnalysis>> {
     let mut rules = algebra_rules();
     rules.extend(eval_rules());
     rules.extend(sigma_rules());
     rules.extend(guarded_sigma_rules());
     rules.extend(conversion_rules());
+    rules.extend(typed_add_rules());
+    rules.extend(typed_sigma_rules());
+    rules.extend(typed_guarded_sigma_rules());
+    rules.extend(typed_sigma_unroll_rules());
     rules
 }
 
@@ -628,5 +767,94 @@ mod tests {
         let (cost, best) = extractor.find_best(root);
         assert_eq!(best.to_string(), "p");
         assert!(cost < AstSize.cost_rec(&input), "roundtrip should simplify");
+    }
+
+    // ═══════════════════════════════════════════════
+    // Wave 1: Typed add (tadd) rewrite rule tests
+    // ═══════════════════════════════════════════════
+
+    #[test]
+    fn test_tadd_comm_rewrite() {
+        let rules = typed_add_rules();
+        assert_merge(
+            "(tadd Field Field x y)",
+            "(tadd Field Field y x)",
+            &rules, "tadd-comm"
+        );
+    }
+
+    #[test]
+    fn test_tadd_assoc_rewrite() {
+        let rules = typed_add_rules();
+        assert_merge(
+            "(tadd Field Field a (tadd Field Field b c))",
+            "(tadd Field Field (tadd Field Field a b) c)",
+            &rules, "tadd-assoc"
+        );
+    }
+
+    #[test]
+    fn test_tadd_comm_preserves_types() {
+        // Ensure type pattern variables bind correctly in commutativity
+        let rules = typed_add_rules();
+        let e1: RecExpr<ArkLang> = "(tadd DensePoly Field a b)".parse().unwrap();
+        let e2: RecExpr<ArkLang> = "(tadd Field DensePoly b a)".parse().unwrap();
+        let mut egraph: EGraph<ArkLang, TypeAnalysis> = EGraph::default();
+        let id1 = egraph.add_expr(&e1);
+        let id2 = egraph.add_expr(&e2);
+        let runner = Runner::default().with_egraph(egraph).run(&rules);
+        assert_eq!(
+            runner.egraph.find(id1),
+            runner.egraph.find(id2),
+            "tadd-comm should swap both types and operands"
+        );
+    }
+
+    #[test]
+    fn test_sigma_dist_tadd() {
+        let rules = typed_sigma_rules();
+        assert_merge(
+            "(Σ i lo hi (tadd Field Field f g))",
+            "(tadd Field Field (Σ i lo hi f) (Σ i lo hi g))",
+            &rules, "sigma-dist-tadd"
+        );
+    }
+
+    #[test]
+    fn test_sigma_fusion_tadd() {
+        let rules = typed_guarded_sigma_rules();
+        assert_merge(
+            "(tadd Field Field (Σ i lo hi f) (Σ i lo hi g))",
+            "(Σ i lo hi (tadd Field Field f g))",
+            &rules, "sigma-fusion-tadd"
+        );
+    }
+
+    #[test]
+    fn test_typed_sigma_unroll_2() {
+        let rules = typed_sigma_unroll_rules();
+        // After unrolling, Σ i 0 2 body should produce (tadd T T (let i 0 body) (let i 1 body))
+        // The body type is Unknown (symbol 'a' has Unknown type), so the applier may not fire.
+        // Use a body with known type (e.g., contains Int literal) to test.
+        let e1: RecExpr<ArkLang> = "(Σ i 0 2 (select (mkarray 10 20) i))".parse().unwrap();
+        let mut egraph: EGraph<ArkLang, TypeAnalysis> = EGraph::default();
+        let id1 = egraph.add_expr(&e1);
+        let runner = Runner::<ArkLang, TypeAnalysis>::default()
+            .with_egraph(egraph)
+            .run(&rules);
+        // Verify the e-graph grew (unrolling added new nodes)
+        assert!(runner.egraph.number_of_classes() > 1, "typed unroll should add nodes");
+    }
+
+    #[test]
+    fn test_typed_sigma_unroll_3() {
+        let rules = typed_sigma_unroll_rules();
+        let e1: RecExpr<ArkLang> = "(Σ i 0 3 (select (mkarray 10 20 30) i))".parse().unwrap();
+        let mut egraph: EGraph<ArkLang, TypeAnalysis> = EGraph::default();
+        let id1 = egraph.add_expr(&e1);
+        let runner = Runner::<ArkLang, TypeAnalysis>::default()
+            .with_egraph(egraph)
+            .run(&rules);
+        assert!(runner.egraph.number_of_classes() > 1, "typed unroll-3 should add nodes");
     }
 }

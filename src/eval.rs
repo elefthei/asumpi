@@ -534,6 +534,17 @@ fn eval_id(expr: &RecExpr<ArkLang>, id: Id, env: &Env) -> Result<Value, EvalErro
             validate_type(&val, src_ty)?;
             eval_coerce(src_ty, dst_ty, val)
         }
+
+        // ── Typed Add ──
+        ArkLang::TAdd([ta, tb, a, b]) => {
+            let ty_a = resolve_type_tag(expr, *ta)?;
+            let ty_b = resolve_type_tag(expr, *tb)?;
+            let va = eval_id(expr, *a, env)?;
+            let vb = eval_id(expr, *b, env)?;
+            validate_type(&va, ty_a)?;
+            validate_type(&vb, ty_b)?;
+            typed_add(ty_a, ty_b, va, vb)
+        }
     }
 }
 
@@ -729,6 +740,45 @@ fn eval_coerce(src: ArkType, dst: ArkType, val: Value) -> Result<Value, EvalErro
         // ── Invalid coercion ──
         _ => Err(EvalError::TypeError(format!(
             "coerce: no valid coercion from {:?} to {:?}", src, dst
+        ))),
+    }
+}
+
+/// Strictly-typed add: both operands must already match their declared types.
+/// No implicit coercion — cross-type Int↔Field requires explicit coerce.
+fn typed_add(ty_a: ArkType, ty_b: ArkType, va: Value, vb: Value) -> Result<Value, EvalError> {
+    use ArkType::*;
+    match (ty_a, ty_b) {
+        (Field, Field) => Ok(Value::Field(va.as_field()? + vb.as_field()?)),
+        (Int, Int) => Ok(Value::Field(int_to_fr(va.as_int()?) + int_to_fr(vb.as_int()?))),
+        (Curve, Curve) => Ok(Value::Curve(va.as_curve()? + vb.as_curve()?)),
+        (DensePoly, DensePoly) => {
+            let pa = va.as_polynomial()?;
+            let pb = vb.as_polynomial()?;
+            Ok(Value::Polynomial(&pa + &pb))
+        }
+        (SparsePoly, SparsePoly) => {
+            let pa = va.as_sparse_uv_poly()?;
+            let pb = vb.as_sparse_uv_poly()?;
+            Ok(Value::SparseUVPoly(&pa + &pb))
+        }
+        (DenseMLE, DenseMLE) => {
+            let ma = va.as_mle()?;
+            let mb = vb.as_mle()?;
+            if ma.num_vars() != mb.num_vars() {
+                return Err(EvalError::TypeError(format!(
+                    "tadd: MLE num_vars mismatch ({} vs {})", ma.num_vars(), mb.num_vars()
+                )));
+            }
+            Ok(Value::MLE(&ma + &mb))
+        }
+        (MVPoly, MVPoly) => {
+            let pa = va.as_mvpoly()?;
+            let pb = vb.as_mvpoly()?;
+            Ok(Value::MVPoly(&pa + &pb))
+        }
+        _ => Err(EvalError::TypeError(format!(
+            "tadd: incompatible types {:?} and {:?}", ty_a, ty_b
         ))),
     }
 }
@@ -2198,5 +2248,93 @@ mod tests {
         let vi = Value::Int(7);
         assert!(validate_type(&vi, ArkType::Int).is_ok());
         assert!(validate_type(&vi, ArkType::Field).is_err());
+    }
+
+    // ═══════════════════════════════════════════════
+    // Wave 1: Typed add (tadd)
+    // ═══════════════════════════════════════════════
+
+    #[test]
+    fn test_tadd_field_field() {
+        let env = empty_env();
+        let v = eval_str("(tadd Field Field (coerce Int Field 3) (coerce Int Field 7))", &env).unwrap();
+        assert_eq!(v.as_field().unwrap(), Fr::from(10u64));
+    }
+
+    #[test]
+    fn test_tadd_int_int() {
+        let env = empty_env();
+        let v = eval_str("(tadd Int Int 3 7)", &env).unwrap();
+        assert_eq!(v.as_field().unwrap(), Fr::from(10u64));
+    }
+
+    #[test]
+    fn test_tadd_curve_curve() {
+        use ark_ec::CurveGroup;
+        use ark_bls12_381::G1Projective;
+        use ark_std::UniformRand;
+        let mut rng = ark_std::test_rng();
+        let p = G1Projective::rand(&mut rng);
+        let q = G1Projective::rand(&mut rng);
+        let mut env = empty_env();
+        env.insert(Symbol::from("P"), Value::Curve(p));
+        env.insert(Symbol::from("Q"), Value::Curve(q));
+        let v = eval_str("(tadd Curve Curve P Q)", &env).unwrap();
+        assert_eq!(v.as_curve().unwrap().into_affine(), (p + q).into_affine());
+    }
+
+    #[test]
+    fn test_tadd_dense_poly() {
+        let env = empty_env();
+        // (1 + 2x) + (3 + 4x) = (4 + 6x)
+        let v = eval_str("(tadd DensePoly DensePoly (poly:duv 1 2) (poly:duv 3 4))", &env).unwrap();
+        let p = v.as_polynomial().unwrap();
+        assert_eq!(p.evaluate(&Fr::from(0u64)), Fr::from(4u64));
+        assert_eq!(p.evaluate(&Fr::from(1u64)), Fr::from(10u64));
+    }
+
+    #[test]
+    fn test_tadd_sparse_poly() {
+        let env = empty_env();
+        let v = eval_str("(tadd SparsePoly SparsePoly (poly:suv 0 5) (poly:suv 0 3))", &env).unwrap();
+        let p = v.as_sparse_uv_poly().unwrap();
+        assert_eq!(Polynomial::evaluate(&p, &Fr::from(0u64)), Fr::from(8u64));
+    }
+
+    #[test]
+    fn test_tadd_dense_mle() {
+        let env = empty_env();
+        // 1-var MLEs: [1,3] + [2,4] = [3,7]
+        let v = eval_str("(tadd DenseMLE DenseMLE (poly:dmle 1 (mkarray 1 3)) (poly:dmle 1 (mkarray 2 4)))", &env).unwrap();
+        let m = v.as_mle().unwrap();
+        assert_eq!(m.evaluate(&vec![Fr::from(0u64)]), Fr::from(3u64));
+        assert_eq!(m.evaluate(&vec![Fr::from(1u64)]), Fr::from(7u64));
+    }
+
+    #[test]
+    fn test_tadd_type_mismatch() {
+        let env = empty_env();
+        // Value is Int(3) but type tag says Field → mismatch
+        let result = eval_str("(tadd Field Field 3 7)", &env);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_tadd_incompatible_types() {
+        let env = empty_env();
+        // Can't add Field + Curve
+        let result = eval_str("(tadd Field Curve (coerce Int Field 3) (coerce Int Field 7))", &env);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_tadd_with_coerced_polys() {
+        let env = empty_env();
+        // Add a polynomial + a coerced constant
+        let v = eval_str("(tadd DensePoly DensePoly (poly:duv 1 2) (coerce Field DensePoly (coerce Int Field 5)))", &env).unwrap();
+        let p = v.as_polynomial().unwrap();
+        // (1 + 2x) + 5 = (6 + 2x)
+        assert_eq!(p.evaluate(&Fr::from(0u64)), Fr::from(6u64));
+        assert_eq!(p.evaluate(&Fr::from(1u64)), Fr::from(8u64));
     }
 }

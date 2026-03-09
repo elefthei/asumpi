@@ -279,6 +279,15 @@ impl Analysis<ArkLang> for TypeAnalysis {
                     types.insert(ArkType::Unknown);
                 }
             }
+
+            // ── Typed Add ──
+            ArkLang::TAdd([_ta, _tb, a, b]) => {
+                free_vars.extend(&cd(a).free_vars);
+                free_vars.extend(&cd(b).free_vars);
+                // Result type comes from operands (type tags are structural, not data)
+                types.extend(&cd(a).types);
+                types.extend(&cd(b).types);
+            }
         }
 
         TypeData { types, free_vars }

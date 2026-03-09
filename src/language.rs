@@ -91,6 +91,7 @@ define_language! {
 
         // ── Typed Operations (coexist with untyped during migration) ──
         "coerce" = Coerce([Id; 3]),
+        "tadd"   = TAdd([Id; 4]),
 
         // ── Variable Reference ──
         Symbol(egg::Symbol),
