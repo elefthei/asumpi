@@ -220,7 +220,7 @@ proptest! {
 
         // Σ i=0..2 scale(s_i, P_i) == a*P + b*Q
         let sigma_r = eval_str(
-            "(Σ i 0 2 (tscale Curve (select (mkarray a b) i) (select (mkarray p q) i)))",
+            "(Σ i 0 2 (tscale Curve (tselect Field (mkarray a b) i) (tselect Curve (mkarray p q) i)))",
             &env,
         ).as_curve().unwrap();
         let manual_r = eval_str("(add (tscale Curve a p) (tscale Curve b q))", &env).as_curve().unwrap();
@@ -307,7 +307,7 @@ proptest! {
             ("a", fr_from_u64(a_val)), ("b", fr_from_u64(b_val)),
             ("c", fr_from_u64(c_val)), ("v", fr_from_u64(v_val)),
         ]);
-        let expr = format!("(select (store (mkarray a b c) {idx} v) {idx})");
+        let expr = format!("(tselect Field (tstore Field (mkarray a b c) {idx} v) {idx})");
         let r = eval_str(&expr, &env).as_field().unwrap();
         prop_assert_eq!(r, fr_from_u64(v_val));
     }
@@ -322,8 +322,8 @@ proptest! {
             ("c", fr_from_u64(c_val)), ("v1", fr_from_u64(v1_val)), ("v2", fr_from_u64(v2_val)),
         ]);
         for i in 0..3u64 {
-            let lhs = format!("(select (store (store (mkarray a b c) {idx} v1) {idx} v2) {i})");
-            let rhs = format!("(select (store (mkarray a b c) {idx} v2) {i})");
+            let lhs = format!("(tselect Field (tstore Field (tstore Field (mkarray a b c) {idx} v1) {idx} v2) {i})");
+            let rhs = format!("(tselect Field (tstore Field (mkarray a b c) {idx} v2) {i})");
             let l = eval_str(&lhs, &env).as_field().unwrap();
             let r = eval_str(&rhs, &env).as_field().unwrap();
             prop_assert_eq!(l, r);
@@ -339,7 +339,7 @@ proptest! {
             ("a", fr_from_u64(a_val)), ("b", fr_from_u64(b_val)),
             ("c", fr_from_u64(c_val)), ("v", fr_from_u64(v_val)),
         ]);
-        let lhs_expr = format!("(alen (store (mkarray a b c) {idx} v))");
+        let lhs_expr = format!("(alen (tstore Field (mkarray a b c) {idx} v))");
         let lhs = eval_str(&lhs_expr, &env);
         let rhs = eval_str("(alen (mkarray a b c))", &env);
         prop_assert_eq!(lhs, rhs);

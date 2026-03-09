@@ -1962,7 +1962,7 @@ mod tests {
 
     #[test]
     fn test_array_create_and_select() {
-        let v = eval_str("(select (mkarray 10 20 30) 1)", &empty_env()).unwrap();
+        let v = eval_str("(tselect Int (mkarray 10 20 30) 1)", &empty_env()).unwrap();
         assert_eq!(v, Value::Int(20));
     }
 
@@ -1974,31 +1974,31 @@ mod tests {
 
     #[test]
     fn test_array_index_out_of_bounds() {
-        let r = eval_str("(select (mkarray 1 2) 5)", &empty_env());
+        let r = eval_str("(tselect Int (mkarray 1 2) 5)", &empty_env());
         assert!(matches!(r, Err(EvalError::IndexOutOfBounds { .. })));
     }
 
     #[test]
     fn test_store_basic() {
-        let v = eval_str("(select (store (mkarray 1 2 3) 1 99) 1)", &empty_env()).unwrap();
+        let v = eval_str("(tselect Int (tstore Int (mkarray 1 2 3) 1 99) 1)", &empty_env()).unwrap();
         assert_eq!(v, Value::Int(99));
     }
 
     #[test]
     fn test_store_preserves_other() {
-        let v = eval_str("(select (store (mkarray 1 2 3) 1 99) 0)", &empty_env()).unwrap();
+        let v = eval_str("(tselect Int (tstore Int (mkarray 1 2 3) 1 99) 0)", &empty_env()).unwrap();
         assert_eq!(v, Value::Int(1));
     }
 
     #[test]
     fn test_store_out_of_bounds() {
-        let r = eval_str("(store (mkarray 1 2 3) 5 99)", &empty_env());
+        let r = eval_str("(tstore Int (mkarray 1 2 3) 5 99)", &empty_env());
         assert!(matches!(r, Err(EvalError::IndexOutOfBounds { .. })));
     }
 
     #[test]
     fn test_alen_after_store() {
-        let v = eval_str("(alen (store (mkarray 1 2 3) 0 99))", &empty_env()).unwrap();
+        let v = eval_str("(alen (tstore Int (mkarray 1 2 3) 0 99))", &empty_env()).unwrap();
         assert_eq!(v, Value::Int(3));
     }
 
@@ -2008,7 +2008,7 @@ mod tests {
         let p = G1Projective::rand(&mut rng);
         let mut env = empty_env();
         env.insert("p".into(), Value::Curve(p));
-        let r = eval_str("(store (mkarray 1 2 3) 0 p)", &env);
+        let r = eval_str("(tstore Int (mkarray 1 2 3) 0 p)", &env);
         assert!(matches!(r, Err(EvalError::TypeMismatch { .. })));
     }
 
@@ -2086,7 +2086,7 @@ mod tests {
 
     #[test]
     fn test_sigma_sum() {
-        let v = eval_str("(Σ i 0 3 (select (mkarray 10 20 30) i))", &empty_env()).unwrap();
+        let v = eval_str("(Σ i 0 3 (tselect Int (mkarray 10 20 30) i))", &empty_env()).unwrap();
         assert_eq!(v, Value::Int(60));
     }
 
@@ -2100,7 +2100,7 @@ mod tests {
         env.insert("P1".into(), Value::Curve(p1));
 
         let result = eval_str(
-            "(Σ i 0 2 (tscale Curve (select (mkarray 3 5) i) (select (mkarray P0 P1) i)))",
+            "(Σ i 0 2 (tscale Curve (tselect Int (mkarray 3 5) i) (tselect Curve (mkarray P0 P1) i)))",
             &env,
         ).unwrap().as_curve().unwrap();
 
@@ -2110,7 +2110,7 @@ mod tests {
 
     #[test]
     fn test_pi_product() {
-        let v = eval_str("(Π i 0 3 (select (mkarray 2 3 5) i))", &empty_env()).unwrap();
+        let v = eval_str("(Π i 0 3 (tselect Int (mkarray 2 3 5) i))", &empty_env()).unwrap();
         assert_eq!(v, Value::Int(30));
     }
 
@@ -2170,11 +2170,11 @@ mod tests {
 
     #[test]
     fn test_specialize_bound() {
-        // Build: (let N (bound 2 100) (Σ i 0 N (select (mkarray 10 20 30) i)))
+        // Build: (let N (bound 2 100) (Σ i 0 N (tselect Int (mkarray 10 20 30) i)))
         // Specialize N=3
         // Should evaluate to 10+20+30 = 60
         let expr: RecExpr<ArkLang> =
-            "(let N (bound 2 100) (Σ i 0 N (select (mkarray 10 20 30) i)))".parse().unwrap();
+            "(let N (bound 2 100) (Σ i 0 N (tselect Int (mkarray 10 20 30) i)))".parse().unwrap();
         let specialized = specialize(&expr, "N".into(), 3);
         let result = eval(&specialized, &empty_env()).unwrap();
         assert_eq!(result.as_field().unwrap(), Fr::from(60u64));
@@ -2192,7 +2192,7 @@ mod tests {
         env.insert("P".into(), Value::Array(vec![Value::Curve(p0), Value::Curve(p1)]));
 
         let expr: RecExpr<ArkLang> =
-            "(let N (bound 1 10) (Σ i 0 N (tscale Curve (select s i) (select P i))))".parse().unwrap();
+            "(let N (bound 1 10) (Σ i 0 N (tscale Curve (tselect Int s i) (tselect Curve P i))))".parse().unwrap();
         let specialized = specialize(&expr, "N".into(), 2);
         let result = eval(&specialized, &env).unwrap().as_curve().unwrap();
 

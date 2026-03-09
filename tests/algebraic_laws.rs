@@ -156,8 +156,8 @@ proptest! {
     #[test]
     fn rule_sigma_unroll_1(a in any::<u64>()) {
         let env = env_with_fields(&[("a", fr(a))]);
-        let lhs = eval_str("(Σ i 0 1 (select (mkarray a) i))", &env).as_field().unwrap();
-        let rhs = eval_str("(let i 0 (select (mkarray a) i))", &env).as_field().unwrap();
+        let lhs = eval_str("(Σ i 0 1 (tselect Field (mkarray a) i))", &env).as_field().unwrap();
+        let rhs = eval_str("(let i 0 (tselect Field (mkarray a) i))", &env).as_field().unwrap();
         prop_assert_eq!(lhs, rhs);
     }
 
@@ -165,8 +165,8 @@ proptest! {
     #[test]
     fn rule_sigma_unroll_2(a in any::<u64>(), b in any::<u64>()) {
         let env = env_with_fields(&[("a", fr(a)), ("b", fr(b))]);
-        let lhs = eval_str("(Σ i 0 2 (select (mkarray a b) i))", &env).as_field().unwrap();
-        let rhs = eval_str("(add (let i 0 (select (mkarray a b) i)) (let i 1 (select (mkarray a b) i)))", &env).as_field().unwrap();
+        let lhs = eval_str("(Σ i 0 2 (tselect Field (mkarray a b) i))", &env).as_field().unwrap();
+        let rhs = eval_str("(add (let i 0 (tselect Field (mkarray a b) i)) (let i 1 (tselect Field (mkarray a b) i)))", &env).as_field().unwrap();
         prop_assert_eq!(lhs, rhs);
     }
 
@@ -174,11 +174,11 @@ proptest! {
     #[test]
     fn rule_sigma_unroll_3(a in any::<u64>(), b in any::<u64>(), c in any::<u64>()) {
         let env = env_with_fields(&[("a", fr(a)), ("b", fr(b)), ("c", fr(c))]);
-        let lhs = eval_str("(Σ i 0 3 (select (mkarray a b c) i))", &env).as_field().unwrap();
+        let lhs = eval_str("(Σ i 0 3 (tselect Field (mkarray a b c) i))", &env).as_field().unwrap();
         let rhs = eval_str(
-            "(add (let i 0 (select (mkarray a b c) i)) \
-                  (add (let i 1 (select (mkarray a b c) i)) \
-                       (let i 2 (select (mkarray a b c) i))))",
+            "(add (let i 0 (tselect Field (mkarray a b c) i)) \
+                  (add (let i 1 (tselect Field (mkarray a b c) i)) \
+                       (let i 2 (tselect Field (mkarray a b c) i))))",
             &env,
         ).as_field().unwrap();
         prop_assert_eq!(lhs, rhs);
@@ -189,11 +189,11 @@ proptest! {
     fn rule_sigma_dist_add(a in any::<u64>(), b in any::<u64>(), c in any::<u64>(), d in any::<u64>()) {
         let env = env_with_fields(&[("a", fr(a)), ("b", fr(b)), ("c", fr(c)), ("d", fr(d))]);
         let lhs = eval_str(
-            "(Σ i 0 2 (add (select (mkarray a b) i) (select (mkarray c d) i)))",
+            "(Σ i 0 2 (add (tselect Field (mkarray a b) i) (tselect Field (mkarray c d) i)))",
             &env,
         ).as_field().unwrap();
         let rhs = eval_str(
-            "(add (Σ i 0 2 (select (mkarray a b) i)) (Σ i 0 2 (select (mkarray c d) i)))",
+            "(add (Σ i 0 2 (tselect Field (mkarray a b) i)) (Σ i 0 2 (tselect Field (mkarray c d) i)))",
             &env,
         ).as_field().unwrap();
         prop_assert_eq!(lhs, rhs);
@@ -203,8 +203,8 @@ proptest! {
     #[test]
     fn rule_pi_unroll_1(a in any::<u64>()) {
         let env = env_with_fields(&[("a", fr(a))]);
-        let lhs = eval_str("(Π i 0 1 (select (mkarray a) i))", &env).as_field().unwrap();
-        let rhs = eval_str("(let i 0 (select (mkarray a) i))", &env).as_field().unwrap();
+        let lhs = eval_str("(Π i 0 1 (tselect Field (mkarray a) i))", &env).as_field().unwrap();
+        let rhs = eval_str("(let i 0 (tselect Field (mkarray a) i))", &env).as_field().unwrap();
         prop_assert_eq!(lhs, rhs);
     }
 
@@ -212,8 +212,8 @@ proptest! {
     #[test]
     fn rule_pi_unroll_2(a in any::<u64>(), b in any::<u64>()) {
         let env = env_with_fields(&[("a", fr(a)), ("b", fr(b))]);
-        let lhs = eval_str("(Π i 0 2 (select (mkarray a b) i))", &env).as_field().unwrap();
-        let rhs = eval_str("(mul (let i 0 (select (mkarray a b) i)) (let i 1 (select (mkarray a b) i)))", &env).as_field().unwrap();
+        let lhs = eval_str("(Π i 0 2 (tselect Field (mkarray a b) i))", &env).as_field().unwrap();
+        let rhs = eval_str("(mul (let i 0 (tselect Field (mkarray a b) i)) (let i 1 (tselect Field (mkarray a b) i)))", &env).as_field().unwrap();
         prop_assert_eq!(lhs, rhs);
     }
 }
@@ -230,11 +230,11 @@ proptest! {
     fn rule_sigma_factor_scale(c in any::<u64>(), a in any::<u64>(), b in any::<u64>(), d in any::<u64>()) {
         let env = env_with_fields(&[("c", fr(c)), ("a", fr(a)), ("b", fr(b)), ("d", fr(d))]);
         let lhs = eval_str(
-            "(Σ i 0 3 (tscale Field c (select (mkarray a b d) i)))",
+            "(Σ i 0 3 (tscale Field c (tselect Field (mkarray a b d) i)))",
             &env,
         ).as_field().unwrap();
         let rhs = eval_str(
-            "(tscale Field c (Σ i 0 3 (select (mkarray a b d) i)))",
+            "(tscale Field c (Σ i 0 3 (tselect Field (mkarray a b d) i)))",
             &env,
         ).as_field().unwrap();
         prop_assert_eq!(lhs, rhs);
@@ -245,11 +245,11 @@ proptest! {
     fn rule_sigma_factor_mul(c in any::<u64>(), a in any::<u64>(), b in any::<u64>()) {
         let env = env_with_fields(&[("c", fr(c)), ("a", fr(a)), ("b", fr(b))]);
         let lhs = eval_str(
-            "(Σ i 0 2 (mul c (select (mkarray a b) i)))",
+            "(Σ i 0 2 (mul c (tselect Field (mkarray a b) i)))",
             &env,
         ).as_field().unwrap();
         let rhs = eval_str(
-            "(mul c (Σ i 0 2 (select (mkarray a b) i)))",
+            "(mul c (Σ i 0 2 (tselect Field (mkarray a b) i)))",
             &env,
         ).as_field().unwrap();
         prop_assert_eq!(lhs, rhs);
@@ -260,11 +260,11 @@ proptest! {
     fn rule_sigma_fusion(a in any::<u64>(), b in any::<u64>(), c in any::<u64>(), d in any::<u64>()) {
         let env = env_with_fields(&[("a", fr(a)), ("b", fr(b)), ("c", fr(c)), ("d", fr(d))]);
         let lhs = eval_str(
-            "(add (Σ i 0 2 (select (mkarray a b) i)) (Σ i 0 2 (select (mkarray c d) i)))",
+            "(add (Σ i 0 2 (tselect Field (mkarray a b) i)) (Σ i 0 2 (tselect Field (mkarray c d) i)))",
             &env,
         ).as_field().unwrap();
         let rhs = eval_str(
-            "(Σ i 0 2 (add (select (mkarray a b) i) (select (mkarray c d) i)))",
+            "(Σ i 0 2 (add (tselect Field (mkarray a b) i) (tselect Field (mkarray c d) i)))",
             &env,
         ).as_field().unwrap();
         prop_assert_eq!(lhs, rhs);
@@ -370,7 +370,7 @@ proptest! {
     fn optimizer_roundtrip_sigma_msm(a in any::<u64>(), b in any::<u64>(), c in any::<u64>()) {
         let env = env_with_fields(&[("a", fr(a)), ("b", fr(b)), ("c", fr(c))]);
         // Σ distributes, can unroll, etc.
-        let expr = "(Σ i 0 3 (select (mkarray a b c) i))";
+        let expr = "(Σ i 0 3 (tselect Field (mkarray a b c) i))";
         let original = eval_str(expr, &env);
         let optimized = optimize_and_eval(expr, &env);
         prop_assert_eq!(original, optimized);
@@ -380,7 +380,7 @@ proptest! {
     #[test]
     fn optimizer_roundtrip_mixed(a in any::<u64>(), b in any::<u64>(), x in any::<u64>()) {
         let env = env_with_fields(&[("a", fr(a)), ("b", fr(b)), ("x", fr(x))]);
-        let expr = "(add (eval (poly:duv a b) x) (Σ i 0 2 (select (mkarray a b) i)))";
+        let expr = "(add (eval (poly:duv a b) x) (Σ i 0 2 (tselect Field (mkarray a b) i)))";
         let original = eval_str(expr, &env);
         let optimized = optimize_and_eval(expr, &env);
         prop_assert_eq!(original, optimized);
@@ -401,7 +401,7 @@ fn guard_necessity_sigma_factor_scale() {
     // RHS: if i=1 in env, scale(1, 60) = 60. Still wrong!
     let env: Env = HashMap::new();
     let lhs = eval_str(
-        "(Σ i 0 3 (mul i (select (mkarray 10 20 30) i)))",
+        "(Σ i 0 3 (mul i (tselect Int (mkarray 10 20 30) i)))",
         &env,
     ).as_field().unwrap();
     assert_eq!(lhs, fr(80)); // 0*10 + 1*20 + 2*30
@@ -412,7 +412,7 @@ fn guard_necessity_sigma_factor_scale() {
     let mut env_i0: Env = HashMap::new();
     env_i0.insert("i".into(), Value::Int(0));
     let rhs_i0 = eval_str(
-        "(mul i (Σ i 0 3 (select (mkarray 10 20 30) i)))",
+        "(mul i (Σ i 0 3 (tselect Int (mkarray 10 20 30) i)))",
         &env_i0,
     ).as_field().unwrap();
     // rhs_i0 = 0 * (10+20+30) = 0 ≠ 80
@@ -424,7 +424,7 @@ fn guard_necessity_sigma_factor_mul() {
     // Σ i=0..2 mul(i, a_i) ≠ mul(i, Σ a_i) for any fixed i
     let env: Env = HashMap::new();
     let lhs = eval_str(
-        "(Σ i 0 2 (mul i (select (mkarray 10 20) i)))",
+        "(Σ i 0 2 (mul i (tselect Int (mkarray 10 20) i)))",
         &env,
     ).as_field().unwrap();
     assert_eq!(lhs, fr(20)); // 0*10 + 1*20
@@ -432,7 +432,7 @@ fn guard_necessity_sigma_factor_mul() {
     let mut env_i1: Env = HashMap::new();
     env_i1.insert("i".into(), Value::Int(1));
     let rhs_i1 = eval_str(
-        "(mul i (Σ i 0 2 (select (mkarray 10 20) i)))",
+        "(mul i (Σ i 0 2 (tselect Int (mkarray 10 20) i)))",
         &env_i1,
     ).as_field().unwrap();
     // rhs = 1 * (10+20) = 30 ≠ 20

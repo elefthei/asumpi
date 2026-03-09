@@ -331,7 +331,7 @@ fn main() {
 
     {
         let start = Instant::now();
-        let v = eval_str("(Σ i 0 3 (select (mkarray 10 20 30) i))", &empty_env()).unwrap();
+        let v = eval_str("(Σ i 0 3 (tselect Int (mkarray 10 20 30) i))", &empty_env()).unwrap();
         let elapsed = start.elapsed().as_micros() as f64;
         let passed = v == Value::Int(60);
         println!("  Σ sum: {}", if passed { "PASS" } else { "FAIL" });
@@ -346,7 +346,7 @@ fn main() {
 
     {
         let start = Instant::now();
-        let v = eval_str("(Π i 0 3 (select (mkarray 2 3 5) i))", &empty_env()).unwrap();
+        let v = eval_str("(Π i 0 3 (tselect Int (mkarray 2 3 5) i))", &empty_env()).unwrap();
         let elapsed = start.elapsed().as_micros() as f64;
         let passed = v == Value::Int(30);
         println!("  Π product: {}", if passed { "PASS" } else { "FAIL" });
@@ -373,7 +373,7 @@ fn main() {
 
         let start = Instant::now();
         let sigma_result = eval_str(
-            "(Σ i 0 2 (tscale Curve (select (mkarray a b) i) (select (mkarray P0 P1) i)))",
+            "(Σ i 0 2 (tscale Curve (tselect Field (mkarray a b) i) (tselect Curve (mkarray P0 P1) i)))",
             &env,
         ).unwrap().as_curve().unwrap();
         let elapsed = start.elapsed().as_micros() as f64;
@@ -672,7 +672,7 @@ fn main() {
     println!("\n--- Array Operations ---");
 
     {
-        let v = eval_str("(select (mkarray 10 20 30) 1)", &empty_env()).unwrap();
+        let v = eval_str("(tselect Int (mkarray 10 20 30) 1)", &empty_env()).unwrap();
         let passed = v == Value::Int(20);
         println!("  select: {}", if passed { "PASS" } else { "FAIL" });
         results.push(TestResult { category: "array".into(), test_name: "select".into(), passed, details: "arr[1] of [10,20,30] = 20".into(), time_us: 0.0 });
@@ -686,14 +686,14 @@ fn main() {
     }
 
     {
-        let r = eval_str("(select (mkarray 1 2) 5)", &empty_env());
+        let r = eval_str("(tselect Int (mkarray 1 2) 5)", &empty_env());
         let passed = matches!(r, Err(EvalError::IndexOutOfBounds { .. }));
         println!("  index out of bounds: {}", if passed { "PASS" } else { "FAIL" });
         results.push(TestResult { category: "array".into(), test_name: "index_out_of_bounds".into(), passed, details: "arr[5] of 2-element array raises error".into(), time_us: 0.0 });
     }
 
     {
-        let v = eval_str("(select (store (mkarray 1 2 3) 1 99) 1)", &empty_env()).unwrap();
+        let v = eval_str("(tselect Int (tstore Int (mkarray 1 2 3) 1 99) 1)", &empty_env()).unwrap();
         let passed = v == Value::Int(99);
         println!("  store: {}", if passed { "PASS" } else { "FAIL" });
         results.push(TestResult { category: "array".into(), test_name: "store".into(), passed, details: "store then select = 99".into(), time_us: 0.0 });
