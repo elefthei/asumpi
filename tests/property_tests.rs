@@ -181,8 +181,8 @@ proptest! {
         env.insert("s".into(), Value::Field(s));
 
         // s*(P+Q) = s*P + s*Q
-        let lhs = eval_str("(scale Curve s (add Curve Curve p q))", &env).as_curve().unwrap();
-        let rhs = eval_str("(add Curve Curve (scale Curve s p) (scale Curve s q))", &env).as_curve().unwrap();
+        let lhs = eval_str("(mul Field Curve s (add Curve Curve p q))", &env).as_curve().unwrap();
+        let rhs = eval_str("(add Curve Curve (mul Field Curve s p) (mul Field Curve s q))", &env).as_curve().unwrap();
         prop_assert_eq!(lhs.into_affine(), rhs.into_affine());
     }
 
@@ -199,8 +199,8 @@ proptest! {
         env.insert("b".into(), Value::Field(b));
 
         // (a+b)*P = a*P + b*P
-        let lhs = eval_str("(scale Curve (add Field Field a b) p)", &env).as_curve().unwrap();
-        let rhs = eval_str("(add Curve Curve (scale Curve a p) (scale Curve b p))", &env).as_curve().unwrap();
+        let lhs = eval_str("(mul Field Curve (add Field Field a b) p)", &env).as_curve().unwrap();
+        let rhs = eval_str("(add Curve Curve (mul Field Curve a p) (mul Field Curve b p))", &env).as_curve().unwrap();
         prop_assert_eq!(lhs.into_affine(), rhs.into_affine());
     }
 
@@ -218,12 +218,12 @@ proptest! {
         env.insert("p".into(), Value::Curve(p));
         env.insert("q".into(), Value::Curve(q));
 
-        // Σ i=0..2 scale(s_i, P_i) == a*P + b*Q
+        // Σ i=0..2 mul(Field, s_i, P_i) == a*P + b*Q
         let sigma_r = eval_str(
-            "(Σ i 0 2 (scale Curve (get Field (array a b) i) (get Curve (array p q) i)))",
+            "(Σ i 0 2 (mul Field Curve (get Field (array a b) i) (get Curve (array p q) i)))",
             &env,
         ).as_curve().unwrap();
-        let manual_r = eval_str("(add Curve Curve (scale Curve a p) (scale Curve b q))", &env).as_curve().unwrap();
+        let manual_r = eval_str("(add Curve Curve (mul Field Curve a p) (mul Field Curve b q))", &env).as_curve().unwrap();
         prop_assert_eq!(sigma_r.into_affine(), manual_r.into_affine());
     }
 }
@@ -371,7 +371,7 @@ proptest! {
     }
 
     #[test]
-    fn poly_scale_distributive(
+    fn poly_scalar_mul_distributive(
         a0 in any::<u64>(), a1 in any::<u64>(),
         b0 in any::<u64>(), b1 in any::<u64>(),
         c_val in any::<u64>(), x_val in any::<u64>()
@@ -382,8 +382,8 @@ proptest! {
             ("c", fr_from_u64(c_val)), ("x", fr_from_u64(x_val)),
         ]);
         // c * (p + q) == c*p + c*q
-        let lhs = eval_str("(eval DensePoly (scale DensePoly c (add DensePoly DensePoly (coerce (arrayof Field) DensePoly (array a0 a1)) (coerce (arrayof Field) DensePoly (array b0 b1)))) x)", &env).as_field().unwrap();
-        let rhs = eval_str("(eval DensePoly (add DensePoly DensePoly (scale DensePoly c (coerce (arrayof Field) DensePoly (array a0 a1))) (scale DensePoly c (coerce (arrayof Field) DensePoly (array b0 b1)))) x)", &env).as_field().unwrap();
+        let lhs = eval_str("(eval DensePoly (mul Field DensePoly c (add DensePoly DensePoly (coerce (arrayof Field) DensePoly (array a0 a1)) (coerce (arrayof Field) DensePoly (array b0 b1)))) x)", &env).as_field().unwrap();
+        let rhs = eval_str("(eval DensePoly (add DensePoly DensePoly (mul Field DensePoly c (coerce (arrayof Field) DensePoly (array a0 a1))) (mul Field DensePoly c (coerce (arrayof Field) DensePoly (array b0 b1)))) x)", &env).as_field().unwrap();
         prop_assert_eq!(lhs, rhs);
     }
 

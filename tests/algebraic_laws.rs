@@ -32,29 +32,29 @@ fn optimize_and_eval(expr_str: &str, env: &Env) -> Value {
 proptest! {
     #![proptest_config(ProptestConfig::with_cases(100))]
 
-    // Rule: (scale 1 a) => a
+    // Rule: (mul Field 1 a) => a
     #[test]
-    fn rule_scale_one_field(a_val in any::<u64>()) {
+    fn rule_mul_one_field(a_val in any::<u64>()) {
         let env = env_with_fields(&[("a", fr(a_val))]);
-        let lhs = eval_str("(scale Field 1 a)", &env).as_field().unwrap();
+        let lhs = eval_str("(mul Field Field 1 a)", &env).as_field().unwrap();
         let rhs = eval_str("a", &env).as_field().unwrap();
         prop_assert_eq!(lhs, rhs);
     }
 
-    // Rule: (scale 1 p) => p — polynomial version via eval
+    // Rule: (mul Field 1 p) => p — polynomial version via eval
     #[test]
-    fn rule_scale_one_poly(c0 in any::<u64>(), c1 in any::<u64>(), x in any::<u64>()) {
+    fn rule_mul_one_poly(c0 in any::<u64>(), c1 in any::<u64>(), x in any::<u64>()) {
         let env = env_with_fields(&[("c0", fr(c0)), ("c1", fr(c1)), ("x", fr(x))]);
-        let lhs = eval_str("(eval DensePoly (scale DensePoly 1 (coerce (arrayof Field) DensePoly (array c0 c1))) x)", &env).as_field().unwrap();
+        let lhs = eval_str("(eval DensePoly (mul Field DensePoly 1 (coerce (arrayof Field) DensePoly (array c0 c1))) x)", &env).as_field().unwrap();
         let rhs = eval_str("(eval DensePoly (coerce (arrayof Field) DensePoly (array c0 c1)) x)", &env).as_field().unwrap();
         prop_assert_eq!(lhs, rhs);
     }
 
-    // Rule: (scale 0 a) => 0
+    // Rule: (mul Field 0 a) => 0
     #[test]
-    fn rule_scale_zero_field(a_val in any::<u64>()) {
+    fn rule_mul_zero_field(a_val in any::<u64>()) {
         let env = env_with_fields(&[("a", fr(a_val))]);
-        let lhs = eval_str("(scale Field 0 a)", &env).as_field().unwrap();
+        let lhs = eval_str("(mul Field Field 0 a)", &env).as_field().unwrap();
         prop_assert!(lhs.is_zero());
     }
 
@@ -66,21 +66,21 @@ proptest! {
         prop_assert!(lhs.is_zero());
     }
 
-    // Rule: (neg a) => (scale -1 a)
+    // Rule: (neg a) => (mul Field -1 a)
     #[test]
-    fn rule_neg_as_scale_field(a_val in any::<u64>()) {
+    fn rule_neg_as_mul_field(a_val in any::<u64>()) {
         let env = env_with_fields(&[("a", fr(a_val))]);
         let lhs = eval_str("(neg Field a)", &env).as_field().unwrap();
-        let rhs = eval_str("(scale Field -1 a)", &env).as_field().unwrap();
+        let rhs = eval_str("(mul Field Field -1 a)", &env).as_field().unwrap();
         prop_assert_eq!(lhs, rhs);
     }
 
-    // Rule: (neg p) => (scale -1 p) — polynomial version via eval
+    // Rule: (neg p) => (mul Field -1 p) — polynomial version via eval
     #[test]
-    fn rule_neg_as_scale_poly(c0 in any::<u64>(), c1 in any::<u64>(), x in any::<u64>()) {
+    fn rule_neg_as_mul_poly(c0 in any::<u64>(), c1 in any::<u64>(), x in any::<u64>()) {
         let env = env_with_fields(&[("c0", fr(c0)), ("c1", fr(c1)), ("x", fr(x))]);
         let lhs = eval_str("(eval DensePoly (neg DensePoly (coerce (arrayof Field) DensePoly (array c0 c1))) x)", &env).as_field().unwrap();
-        let rhs = eval_str("(eval DensePoly (scale DensePoly -1 (coerce (arrayof Field) DensePoly (array c0 c1))) x)", &env).as_field().unwrap();
+        let rhs = eval_str("(eval DensePoly (mul Field DensePoly -1 (coerce (arrayof Field) DensePoly (array c0 c1))) x)", &env).as_field().unwrap();
         prop_assert_eq!(lhs, rhs);
     }
 }
@@ -118,11 +118,11 @@ proptest! {
         prop_assert_eq!(lhs, rhs);
     }
 
-    // Rule: (eval (scale c p) x) => (mul Field Field c (eval p x))
+    // Rule: (eval (mul Field c p) x) => (mul Field Field c (eval p x))
     #[test]
-    fn rule_eval_scale(c in any::<u64>(), c0 in any::<u64>(), c1 in any::<u64>(), x in any::<u64>()) {
+    fn rule_eval_mul_scalar(c in any::<u64>(), c0 in any::<u64>(), c1 in any::<u64>(), x in any::<u64>()) {
         let env = env_with_fields(&[("c", fr(c)), ("c0", fr(c0)), ("c1", fr(c1)), ("x", fr(x))]);
-        let lhs = eval_str("(eval DensePoly (scale DensePoly c (coerce (arrayof Field) DensePoly (array c0 c1))) x)", &env).as_field().unwrap();
+        let lhs = eval_str("(eval DensePoly (mul Field DensePoly c (coerce (arrayof Field) DensePoly (array c0 c1))) x)", &env).as_field().unwrap();
         let rhs = eval_str("(mul Field Field c (eval DensePoly (coerce (arrayof Field) DensePoly (array c0 c1)) x))", &env).as_field().unwrap();
         prop_assert_eq!(lhs, rhs);
     }
@@ -225,16 +225,16 @@ proptest! {
 proptest! {
     #![proptest_config(ProptestConfig::with_cases(50))]
 
-    // Rule: Σ(scale(c, f(i))) ≡ scale(c, Σ(f(i))) when c independent of i
+    // Rule: Σ(mul(Field, c, f(i))) ≡ mul(Field, c, Σ(f(i))) when c independent of i
     #[test]
-    fn rule_sigma_factor_scale(c in any::<u64>(), a in any::<u64>(), b in any::<u64>(), d in any::<u64>()) {
+    fn rule_sigma_factor_scalar(c in any::<u64>(), a in any::<u64>(), b in any::<u64>(), d in any::<u64>()) {
         let env = env_with_fields(&[("c", fr(c)), ("a", fr(a)), ("b", fr(b)), ("d", fr(d))]);
         let lhs = eval_str(
-            "(Σ i 0 3 (scale Field c (get Field (array a b d) i)))",
+            "(Σ i 0 3 (mul Field Field c (get Field (array a b d) i)))",
             &env,
         ).as_field().unwrap();
         let rhs = eval_str(
-            "(scale Field c (Σ i 0 3 (get Field (array a b d) i)))",
+            "(mul Field Field c (Σ i 0 3 (get Field (array a b d) i)))",
             &env,
         ).as_field().unwrap();
         prop_assert_eq!(lhs, rhs);
@@ -339,8 +339,8 @@ proptest! {
     fn optimizer_roundtrip_field_arith(a in any::<u64>(), b in any::<u64>(), c in any::<u64>()) {
         let env = env_with_fields(&[("a", fr(a)), ("b", fr(b)), ("c", fr(c))]);
         // Expression that multiple rules can transform:
-        // scale(c, add(a, b)) can be distributed, reordered, etc.
-        let expr = "(add Field Field (scale Field c (add Field Field a b)) (neg Field (mul Field Field a b)))";
+        // mul(Field, c, add(a, b)) can be distributed, reordered, etc.
+        let expr = "(add Field Field (mul Field Field c (add Field Field a b)) (neg Field (mul Field Field a b)))";
         let original = eval_str(expr, &env);
         let optimized = optimize_and_eval(expr, &env);
         prop_assert_eq!(original, optimized);
@@ -358,8 +358,8 @@ proptest! {
             ("b0", fr(b0)), ("b1", fr(b1)),
             ("c", fr(c)), ("x", fr(x)),
         ]);
-        // eval(scale(c, add(p, q)), x) — multiple rules apply
-        let expr = "(eval DensePoly (scale DensePoly c (add DensePoly DensePoly (coerce (arrayof Field) DensePoly (array a0 a1)) (coerce (arrayof Field) DensePoly (array b0 b1)))) x)";
+        // eval(mul(Field, c, add(p, q)), x) — multiple rules apply
+        let expr = "(eval DensePoly (mul Field DensePoly c (add DensePoly DensePoly (coerce (arrayof Field) DensePoly (array a0 a1)) (coerce (arrayof Field) DensePoly (array b0 b1)))) x)";
         let original = eval_str(expr, &env);
         let optimized = optimize_and_eval(expr, &env);
         prop_assert_eq!(original, optimized);
@@ -376,7 +376,7 @@ proptest! {
         prop_assert_eq!(original, optimized);
     }
 
-    // Mixed: poly eval + sigma + scale
+    // Mixed: poly eval + sigma + scalar mul
     #[test]
     fn optimizer_roundtrip_mixed(a in any::<u64>(), b in any::<u64>(), x in any::<u64>()) {
         let env = env_with_fields(&[("a", fr(a)), ("b", fr(b)), ("x", fr(x))]);
@@ -392,13 +392,13 @@ proptest! {
 // ═══════════════════════════════════════════════════════════════════
 
 #[test]
-fn guard_necessity_sigma_factor_scale() {
-    // Without the IndependentOf guard, factoring (scale i ...) out of Σ is wrong.
-    // Σ i=0..3 scale(i, a_i) ≠ scale(i, Σ i=0..3 a_i)  (RHS uses i as a free var)
+fn guard_necessity_sigma_factor_scalar() {
+    // Without the IndependentOf guard, factoring (mul Field i ...) out of Σ is wrong.
+    // Σ i=0..3 mul(Field, i, a_i) ≠ mul(Field, i, Σ i=0..3 a_i)  (RHS uses i as a free var)
     //
     // LHS: 0*10 + 1*20 + 2*30 = 0 + 20 + 60 = 80
-    // RHS: if i=0 in env, scale(0, 10+20+30) = 0. Wrong!
-    // RHS: if i=1 in env, scale(1, 60) = 60. Still wrong!
+    // RHS: if i=0 in env, mul(Field, 0, 10+20+30) = 0. Wrong!
+    // RHS: if i=1 in env, mul(Field, 1, 60) = 60. Still wrong!
     let env: Env = HashMap::new();
     let lhs = eval_str(
         "(Σ i 0 3 (mul Field Field i (get Int (array 10 20 30) i)))",
@@ -416,7 +416,7 @@ fn guard_necessity_sigma_factor_scale() {
         &env_i0,
     ).as_field().unwrap();
     // rhs_i0 = 0 * (10+20+30) = 0 ≠ 80
-    assert_ne!(lhs, rhs_i0, "Factoring scale(i,...) out of Σ over i is unsound");
+    assert_ne!(lhs, rhs_i0, "Factoring mul(Field, i,...) out of Σ over i is unsound");
 }
 
 #[test]
@@ -446,12 +446,12 @@ fn guard_necessity_sigma_factor_mul() {
 proptest! {
     #![proptest_config(ProptestConfig::with_cases(50))]
 
-    // scale(a, scale(b, P)) == scale(a*b, P)
+    // mul(Field, a, mul(Field, b, P)) == mul(Field, a*b, P)
     #[test]
-    fn scale_associativity(a in any::<u64>(), b in any::<u64>(), p in any::<u64>()) {
+    fn scalar_mul_associativity(a in any::<u64>(), b in any::<u64>(), p in any::<u64>()) {
         let env = env_with_fields(&[("a", fr(a)), ("b", fr(b)), ("p", fr(p))]);
-        let lhs = eval_str("(scale Field a (scale Field b p))", &env).as_field().unwrap();
-        let rhs = eval_str("(scale Field (mul Field Field a b) p)", &env).as_field().unwrap();
+        let lhs = eval_str("(mul Field Field a (mul Field Field b p))", &env).as_field().unwrap();
+        let rhs = eval_str("(mul Field Field (mul Field Field a b) p)", &env).as_field().unwrap();
         prop_assert_eq!(lhs, rhs);
     }
 

@@ -251,16 +251,6 @@ fn eval_id(expr: &RecExpr<ArkLang>, id: Id, env: &Env) -> Result<Value, EvalErro
             }
         }
 
-        // ── Typed Scale ──
-        ArkLang::Scale([t, c, a]) => {
-            let ty = resolve_type_tag(expr, *t)?;
-            let vc = eval_id(expr, *c, env)?;
-            let scalar = vc.as_field()?; // accepts both Field and Int
-            let va = eval_id(expr, *a, env)?;
-            validate_type(&va, &ty)?;
-            typed_scale(ty, scalar, va)
-        }
-
         // ── Typed Pow ──
         ArkLang::Pow([t, base, exp]) => {
             let ty = resolve_type_tag(expr, *t)?;
@@ -824,10 +814,11 @@ fn typed_neg(ty: ArkType, va: Value) -> Result<Value, EvalError> {
     }
 }
 
-/// Strictly-typed mul: both operands must match declared types.
+/// Strictly-typed mul: handles same-type products and cross-type scalar multiplication.
 fn typed_mul(ty_a: ArkType, ty_b: ArkType, va: Value, vb: Value) -> Result<Value, EvalError> {
     use ArkType::*;
     match (&ty_a, &ty_b) {
+        // Same-type products
         (Field, Field) => Ok(Value::Field(va.as_field()? * vb.as_field()?)),
         (Int, Int) => Ok(Value::Int(va.as_int()? * vb.as_int()?)),
         (DensePoly, DensePoly) => {
@@ -835,42 +826,95 @@ fn typed_mul(ty_a: ArkType, ty_b: ArkType, va: Value, vb: Value) -> Result<Value
             let pb = vb.as_polynomial()?;
             Ok(Value::Polynomial(&pa * &pb))
         }
-        _ => Err(EvalError::TypeError(format!(
-            "mul: incompatible types {:?} and {:?}", ty_a, ty_b
-        ))),
-    }
-}
 
-/// Strictly-typed scale: scalar must be Field, target must match declared type.
-fn typed_scale(ty: ArkType, scalar: Fr, va: Value) -> Result<Value, EvalError> {
-    use ArkType::*;
-    match ty {
-        Field => Ok(Value::Field(scalar * va.as_field()?)),
-        Int => Ok(Value::Field(scalar * int_to_fr(va.as_int()?))),
-        Curve => Ok(Value::Curve(va.as_curve()? * scalar)),
-        DensePoly => Ok(Value::Polynomial(&va.as_polynomial()? * scalar)),
-        SparsePoly => {
-            let p = va.as_sparse_uv_poly()?;
+        // Scalar × T (absorbed from scale)
+        (Field, Curve) | (Int, Curve) => {
+            let s = va.as_field()?;
+            Ok(Value::Curve(vb.as_curve()? * s))
+        }
+        (Field, DensePoly) | (Int, DensePoly) => {
+            let s = va.as_field()?;
+            Ok(Value::Polynomial(&vb.as_polynomial()? * s))
+        }
+        (Field, SparsePoly) | (Int, SparsePoly) => {
+            let s = va.as_field()?;
+            let p = vb.as_sparse_uv_poly()?;
             let scaled: Vec<(usize, Fr)> = p.to_vec().iter()
-                .map(|(i, coeff)| (*i, *coeff * scalar))
+                .map(|(i, coeff)| (*i, *coeff * s))
                 .collect();
             Ok(Value::SparseUVPoly(SparseUVPolynomial::from_coefficients_vec(scaled)))
         }
-        DenseMLE => {
-            let m = va.as_mle()?;
+        (Field, DenseMLE) | (Int, DenseMLE) => {
+            let s = va.as_field()?;
+            let m = vb.as_mle()?;
             let nv = m.num_vars();
-            let scaled_evals: Vec<Fr> = m.to_evaluations().iter().map(|v| *v * scalar).collect();
+            let scaled_evals: Vec<Fr> = m.to_evaluations().iter().map(|v| *v * s).collect();
             Ok(Value::MLE(DenseMultilinearExtension::from_evaluations_vec(nv, scaled_evals)))
         }
-        MVPoly => {
-            let p = va.as_mvpoly()?;
+        (Field, MVPoly) | (Int, MVPoly) => {
+            let s = va.as_field()?;
+            let p = vb.as_mvpoly()?;
             let nv = p.num_vars();
             let scaled_terms: Vec<(Fr, SparseTerm)> = p.terms().iter()
-                .map(|(c, t)| (*c * scalar, t.clone()))
+                .map(|(c, t)| (*c * s, t.clone()))
                 .collect();
             Ok(Value::MVPoly(MVSparsePolynomial::from_coefficients_vec(nv, scaled_terms)))
         }
-        _ => Err(EvalError::TypeError(format!("scale: unsupported target type {:?}", ty))),
+        (Field, Int) => Ok(Value::Field(va.as_field()? * int_to_fr(vb.as_int()?))),
+
+        // T × Scalar (commutative)
+        (Curve, Field) | (Curve, Int) => {
+            let s = vb.as_field()?;
+            Ok(Value::Curve(va.as_curve()? * s))
+        }
+        (DensePoly, Field) | (DensePoly, Int) => {
+            let s = vb.as_field()?;
+            Ok(Value::Polynomial(&va.as_polynomial()? * s))
+        }
+        (SparsePoly, Field) | (SparsePoly, Int) => {
+            let s = vb.as_field()?;
+            let p = va.as_sparse_uv_poly()?;
+            let scaled: Vec<(usize, Fr)> = p.to_vec().iter()
+                .map(|(i, coeff)| (*i, *coeff * s))
+                .collect();
+            Ok(Value::SparseUVPoly(SparseUVPolynomial::from_coefficients_vec(scaled)))
+        }
+        (DenseMLE, Field) | (DenseMLE, Int) => {
+            let s = vb.as_field()?;
+            let m = va.as_mle()?;
+            let nv = m.num_vars();
+            let scaled_evals: Vec<Fr> = m.to_evaluations().iter().map(|v| *v * s).collect();
+            Ok(Value::MLE(DenseMultilinearExtension::from_evaluations_vec(nv, scaled_evals)))
+        }
+        (MVPoly, Field) | (MVPoly, Int) => {
+            let s = vb.as_field()?;
+            let p = va.as_mvpoly()?;
+            let nv = p.num_vars();
+            let scaled_terms: Vec<(Fr, SparseTerm)> = p.terms().iter()
+                .map(|(c, t)| (*c * s, t.clone()))
+                .collect();
+            Ok(Value::MVPoly(MVSparsePolynomial::from_coefficients_vec(nv, scaled_terms)))
+        }
+        (Int, Field) => Ok(Value::Field(int_to_fr(va.as_int()?) * vb.as_field()?)),
+
+        // Hadamard (element-wise) product for arrays
+        (ArrayOf(inner_a), ArrayOf(inner_b)) => {
+            let arr_a = va.as_array()?;
+            let arr_b = vb.as_array()?;
+            if arr_a.len() != arr_b.len() {
+                return Err(EvalError::TypeError(format!(
+                    "mul: array length mismatch: {} vs {}", arr_a.len(), arr_b.len()
+                )));
+            }
+            let results: Vec<Value> = arr_a.into_iter().zip(arr_b.into_iter())
+                .map(|(a, b)| typed_mul(inner_a.as_ref().clone(), inner_b.as_ref().clone(), a, b))
+                .collect::<Result<_, _>>()?;
+            Ok(Value::Array(results))
+        }
+
+        _ => Err(EvalError::TypeError(format!(
+            "mul: incompatible types {:?} and {:?}", ty_a, ty_b
+        ))),
     }
 }
 
@@ -1005,13 +1049,6 @@ fn interpret_monomial(
         ArkLang::Neg([_t, a]) => {
             let (ca, ea) = interpret_monomial(expr, *a, var_names, num_vars, env)?;
             Ok((-ca, ea))
-        }
-        ArkLang::Scale([_t, c, m]) => {
-            let cv = eval_id(expr, *c, env)?.as_field().map_err(|_|
-                EvalError::TypeError("poly: scale coefficient must be a field element".into())
-            )?;
-            let (cm, em) = interpret_monomial(expr, *m, var_names, num_vars, env)?;
-            Ok((cv * cm, em))
         }
         _ => {
             // Fall through: evaluate normally and treat as constant coefficient
@@ -1231,7 +1268,7 @@ mod tests {
         env.insert("p".into(), Value::Curve(p));
         env.insert("s".into(), Value::Field(s));
 
-        let result = eval_str("(scale Curve s p)", &env).unwrap().as_curve().unwrap();
+        let result = eval_str("(mul Field Curve s p)", &env).unwrap().as_curve().unwrap();
         assert_eq!(result.into_affine(), (p * s).into_affine());
     }
 
@@ -1242,7 +1279,7 @@ mod tests {
         let mut env = empty_env();
         env.insert("p".into(), Value::Curve(p));
 
-        let result = eval_str("(scale Curve 3 p)", &env).unwrap().as_curve().unwrap();
+        let result = eval_str("(mul Field Curve 3 p)", &env).unwrap().as_curve().unwrap();
         let expected = p + p + p;
         assert_eq!(result.into_affine(), expected.into_affine());
     }
@@ -1265,7 +1302,7 @@ mod tests {
 
         // MSM([a,b], [P,Q]) = a*P + b*Q
         let result = eval_str(
-            "(add Curve Curve (scale Curve a p) (scale Curve b q))", &env
+            "(add Curve Curve (mul Field Curve a p) (mul Field Curve b q))", &env
         ).unwrap().as_curve().unwrap();
 
         let expected = p * a + q * b;
@@ -1330,8 +1367,8 @@ mod tests {
     }
 
     #[test]
-    fn test_poly_scale() {
-        let v = eval_str("(eval DensePoly (scale DensePoly 3 (coerce (arrayof Field) DensePoly (array 1 1))) 2)", &empty_env()).unwrap();
+    fn test_poly_mul_scalar() {
+        let v = eval_str("(eval DensePoly (mul Field DensePoly 3 (coerce (arrayof Field) DensePoly (array 1 1))) 2)", &empty_env()).unwrap();
         assert_eq!(v, Value::Int(9));
     }
 
@@ -1532,7 +1569,7 @@ mod tests {
     }
 
     #[test]
-    fn test_sigma_scale() {
+    fn test_sigma_mul_scalar() {
         let mut rng = StdRng::seed_from_u64(50);
         let p0 = G1Projective::rand(&mut rng);
         let p1 = G1Projective::rand(&mut rng);
@@ -1541,7 +1578,7 @@ mod tests {
         env.insert("P1".into(), Value::Curve(p1));
 
         let result = eval_str(
-            "(Σ i 0 2 (scale Curve (get Int (array 3 5) i) (get Curve (array P0 P1) i)))",
+            "(Σ i 0 2 (mul Field Curve (get Int (array 3 5) i) (get Curve (array P0 P1) i)))",
             &env,
         ).unwrap().as_curve().unwrap();
 
@@ -1623,7 +1660,7 @@ mod tests {
 
     #[test]
     fn test_specialize_msm_pattern() {
-        // Parametric MSM: (let N (bound 1 10) (Σ i 0 N (scale (get s i) (get P i))))
+        // Parametric MSM: (let N (bound 1 10) (Σ i 0 N (mul Field Curve (get s i) (get P i))))
         // Specialize N=2 with concrete scalars and points
         let mut rng = StdRng::seed_from_u64(42);
         let p0 = G1Projective::rand(&mut rng);
@@ -1633,7 +1670,7 @@ mod tests {
         env.insert("P".into(), Value::Array(vec![Value::Curve(p0), Value::Curve(p1)]));
 
         let expr: RecExpr<ArkLang> =
-            "(let N (bound 1 10) (Σ i 0 N (scale Curve (get Int s i) (get Curve P i))))".parse().unwrap();
+            "(let N (bound 1 10) (Σ i 0 N (mul Field Curve (get Int s i) (get Curve P i))))".parse().unwrap();
         let specialized = specialize(&expr, "N".into(), 2);
         let result = eval(&specialized, &env).unwrap().as_curve().unwrap();
 
@@ -2213,7 +2250,7 @@ mod tests {
     }
 
     // ═══════════════════════════════════════════════
-    // Wave 2: Typed neg, mul, inv, scale, pow
+    // Wave 2: Typed neg, mul, inv, pow
     // ═══════════════════════════════════════════════
 
     #[test]
@@ -2282,7 +2319,7 @@ mod tests {
     }
 
     #[test]
-    fn test_scale_curve() {
+    fn test_mul_scalar_curve() {
         use ark_ec::CurveGroup;
         use ark_bls12_381::G1Projective;
         use ark_std::UniformRand;
@@ -2291,23 +2328,23 @@ mod tests {
         let mut env = empty_env();
         env.insert(Symbol::from("P"), Value::Curve(p));
         env.insert(Symbol::from("c"), Value::Field(Fr::from(3u64)));
-        let v = eval_str("(scale Curve c P)", &env).unwrap();
+        let v = eval_str("(mul Field Curve c P)", &env).unwrap();
         assert_eq!(v.as_curve().unwrap().into_affine(), (p * Fr::from(3u64)).into_affine());
     }
 
     #[test]
-    fn test_scale_dense_poly() {
+    fn test_mul_scalar_dense_poly() {
         let env = empty_env();
-        let v = eval_str("(scale DensePoly (coerce Int Field 3) (coerce (arrayof Field) DensePoly (array 1 2)))", &env).unwrap();
+        let v = eval_str("(mul Field DensePoly (coerce Int Field 3) (coerce (arrayof Field) DensePoly (array 1 2)))", &env).unwrap();
         let p = v.as_polynomial().unwrap();
         assert_eq!(p.evaluate(&Fr::from(1u64)), Fr::from(9u64));
     }
 
     #[test]
-    fn test_scale_int_scalar_coerced() {
+    fn test_mul_int_scalar_coerced() {
         let env = empty_env();
-        // Int scalar 3 is auto-coerced to Field for scale
-        let v = eval_str("(scale Field 3 (coerce Int Field 5))", &env).unwrap();
+        // Int scalar 3 is auto-coerced to Field for mul
+        let v = eval_str("(mul Field Field 3 (coerce Int Field 5))", &env).unwrap();
         assert_eq!(v, Value::Field(fr(15)));
     }
 

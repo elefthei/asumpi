@@ -66,7 +66,6 @@ define_language! {
         "neg"     = Neg([Id; 2]),
         "mul"     = Mul([Id; 4]),
         "inv"     = Inv([Id; 2]),
-        "scale"   = Scale([Id; 3]),
         "pow"     = Pow([Id; 3]),
         "eval"    = Eval([Id; 3]),
         "deg"     = Deg([Id; 2]),

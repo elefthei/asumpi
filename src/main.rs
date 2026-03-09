@@ -238,7 +238,7 @@ fn main() {
     }
 
     // ═══════════════════════════════════════════════
-    // 2. CURVE OPERATIONS (generic add/neg/scale)
+    // 2. CURVE OPERATIONS (add/neg/scalar mul)
     // ═══════════════════════════════════════════════
     println!("\n--- Curve Operations ---");
     {
@@ -276,7 +276,7 @@ fn main() {
         });
 
         let start = Instant::now();
-        let r1 = eval_str("(scale Curve 3 p)", &env).unwrap().as_curve().unwrap();
+        let r1 = eval_str("(mul Field Curve 3 p)", &env).unwrap().as_curve().unwrap();
         let r2 = eval_str("(add Curve Curve p (add Curve Curve p p))", &env).unwrap().as_curve().unwrap();
         let elapsed = start.elapsed().as_micros() as f64;
         let passed = r1.into_affine() == r2.into_affine();
@@ -292,8 +292,8 @@ fn main() {
         let s = Fr::rand(&mut rng);
         env.insert("s".into(), Value::Field(s));
         let start = Instant::now();
-        let lhs = eval_str("(scale Curve s (add Curve Curve p q))", &env).unwrap().as_curve().unwrap();
-        let rhs = eval_str("(add Curve Curve (scale Curve s p) (scale Curve s q))", &env).unwrap().as_curve().unwrap();
+        let lhs = eval_str("(mul Field Curve s (add Curve Curve p q))", &env).unwrap().as_curve().unwrap();
+        let rhs = eval_str("(add Curve Curve (mul Field Curve s p) (mul Field Curve s q))", &env).unwrap().as_curve().unwrap();
         let elapsed = start.elapsed().as_micros() as f64;
         let passed = lhs.into_affine() == rhs.into_affine();
         println!("  scalar mul linearity: {}", if passed { "PASS" } else { "FAIL" });
@@ -310,8 +310,8 @@ fn main() {
         env.insert("a".into(), Value::Field(a));
         env.insert("b".into(), Value::Field(b));
         let start = Instant::now();
-        let lhs = eval_str("(scale Curve (add Field Field a b) p)", &env).unwrap().as_curve().unwrap();
-        let rhs = eval_str("(add Curve Curve (scale Curve a p) (scale Curve b p))", &env).unwrap().as_curve().unwrap();
+        let lhs = eval_str("(mul Field Curve (add Field Field a b) p)", &env).unwrap().as_curve().unwrap();
+        let rhs = eval_str("(add Curve Curve (mul Field Curve a p) (mul Field Curve b p))", &env).unwrap().as_curve().unwrap();
         let elapsed = start.elapsed().as_micros() as f64;
         let passed = lhs.into_affine() == rhs.into_affine();
         println!("  scalar distributivity: {}", if passed { "PASS" } else { "FAIL" });
@@ -373,7 +373,7 @@ fn main() {
 
         let start = Instant::now();
         let sigma_result = eval_str(
-            "(Σ i 0 2 (scale Curve (get Field (array a b) i) (get Curve (array P0 P1) i)))",
+            "(Σ i 0 2 (mul Field Curve (get Field (array a b) i) (get Curve (array P0 P1) i)))",
             &env,
         ).unwrap().as_curve().unwrap();
         let elapsed = start.elapsed().as_micros() as f64;
@@ -554,12 +554,12 @@ fn main() {
     }
 
     {
-        let v = eval_str("(eval DensePoly (scale DensePoly 3 (coerce (arrayof Field) DensePoly (array 1 1))) 2)", &empty_env()).unwrap();
+        let v = eval_str("(eval DensePoly (mul Field DensePoly 3 (coerce (arrayof Field) DensePoly (array 1 1))) 2)", &empty_env()).unwrap();
         let passed = v == Value::Int(9);
-        println!("  pscale: {}", if passed { "PASS" } else { "FAIL" });
+        println!("  pmulscalar: {}", if passed { "PASS" } else { "FAIL" });
         results.push(TestResult {
             category: "polynomial".into(),
-            test_name: "pscale".into(),
+            test_name: "pmulscalar".into(),
             passed,
             details: "3*(1+x) at x=2 = 9".into(),
             time_us: 0.0,
@@ -957,7 +957,7 @@ fn main() {
 
     let lang_stats = serde_json::json!({
         "node_types": {
-            "typed_arithmetic": ["add", "neg", "mul", "inv", "scale", "pow", "coerce"],
+            "typed_arithmetic": ["add", "neg", "mul", "inv", "pow", "coerce"],
             "type_tags": ["Field", "Curve", "Int", "Bool", "DensePoly", "SparsePoly", "DenseMLE", "SparseMLE", "MVPoly", "Array", "Pair", "arrayof"],
             "eval_queries": ["eval", "deg", "numvars"],
             "symbolic_constructors": ["ids", "poly", "mle"],
@@ -979,7 +979,7 @@ fn main() {
     });
 
     println!("  Total node types: 43");
-    println!("  Typed arithmetic: 7 (add, neg, mul, inv, scale, pow, coerce)");
+    println!("  Typed arithmetic: 6 (add, neg, mul, inv, pow, coerce)");
     println!("  Type tags: 12 (Field, Curve, Int, Bool, DensePoly, SparsePoly, DenseMLE, SparseMLE, MVPoly, Array, Pair, arrayof)");
     println!("  Evaluation & queries: 3 (eval, deg, numvars)");
     println!("  Symbolic constructors: 3 (ids, poly, mle)");

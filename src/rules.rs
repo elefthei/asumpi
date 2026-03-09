@@ -16,30 +16,30 @@ pub fn add_rules() -> Vec<Rewrite<ArkLang, TypeAnalysis>> {
     ]
 }
 
-/// Typed arithmetic rules (Wave 2: neg, mul, scale, pow).
+/// Typed arithmetic rules (neg, mul, pow).
 pub fn arith_rules() -> Vec<Rewrite<ArkLang, TypeAnalysis>> {
     vec![
         // ── Negation ──
         rewrite!("double-neg"; "(neg ?T (neg ?T ?a))" => "?a"),
-        rewrite!("neg-as-scale"; "(neg ?T ?a)" => "(scale ?T -1 ?a)"),
+        rewrite!("neg-as-mul"; "(neg ?T ?a)" => "(mul Field ?T -1 ?a)"),
 
         // ── Multiplication ──
         rewrite!("mul-comm"; "(mul ?T ?V ?a ?b)" => "(mul ?V ?T ?b ?a)"),
         rewrite!("mul-assoc"; "(mul ?T ?V ?a (mul ?V ?W ?b ?c))" => "(mul ?T ?W (mul ?T ?V ?a ?b) ?c)"),
         rewrite!("mul-dist"; "(mul ?T ?T ?a (add ?T ?T ?b ?c))" => "(add ?T ?T (mul ?T ?T ?a ?b) (mul ?T ?T ?a ?c))"),
 
-        // ── Scale ──
-        rewrite!("scale-one"; "(scale ?T 1 ?a)" => "?a"),
-        rewrite!("scale-zero"; "(scale ?T 0 ?a)" => "0"),
-        rewrite!("scale-dist"; "(scale ?T ?c (add ?T ?T ?a ?b))" => "(add ?T ?T (scale ?T ?c ?a) (scale ?T ?c ?b))"),
+        // ── Scalar mul ──
+        rewrite!("mul-one"; "(mul Field ?T 1 ?a)" => "?a"),
+        rewrite!("mul-zero"; "(mul Field ?T 0 ?a)" => "0"),
+        rewrite!("mul-scalar-dist"; "(mul Field ?T ?c (add ?T ?T ?a ?b))" => "(add ?T ?T (mul Field ?T ?c ?a) (mul Field ?T ?c ?b))"),
     ]
 }
 
-/// Typed guarded sigma rules for scale/mul factor extraction.
+/// Typed guarded sigma rules for scalar/mul factor extraction.
 pub fn guarded_arith_rules() -> Vec<Rewrite<ArkLang, TypeAnalysis>> {
     vec![
-        rewrite!("sigma-factor-scale";
-            "(Σ ?i ?lo ?hi (scale ?T ?c ?f))" => "(scale ?T ?c (Σ ?i ?lo ?hi ?f))"
+        rewrite!("sigma-factor-scalar";
+            "(Σ ?i ?lo ?hi (mul Field ?T ?c ?f))" => "(mul Field ?T ?c (Σ ?i ?lo ?hi ?f))"
             if IndependentOf { expr_var: "?c".parse().unwrap(), idx_var: "?i".parse().unwrap() }
         ),
         rewrite!("sigma-factor-mul";
@@ -182,7 +182,7 @@ pub fn eval_rules() -> Vec<Rewrite<ArkLang, TypeAnalysis>> {
             => "(add Field Field (eval ?T ?p ?x) (eval ?T ?q ?x))"),
         rewrite!("eval-neg"; "(eval ?T (neg ?T ?p) ?x)"
             => "(neg Field (eval ?T ?p ?x))"),
-        rewrite!("eval-scale"; "(eval ?T (scale ?T ?c ?p) ?x)"
+        rewrite!("eval-mul-scalar"; "(eval ?T (mul Field ?T ?c ?p) ?x)"
             => "(mul Field Field ?c (eval ?T ?p ?x))"),
         rewrite!("eval-mul"; "(eval ?T (mul ?T ?T ?p ?q) ?x)"
             => "(mul Field Field (eval ?T ?p ?x) (eval ?T ?q ?x))"),
@@ -406,46 +406,46 @@ mod tests {
     }
 
     #[test]
-    fn test_scale_one() {
+    fn test_mul_one() {
         let rules = arith_rules();
-        let simplified = simplify("(scale Field 1 x)", &rules);
+        let simplified = simplify("(mul Field Field 1 x)", &rules);
         assert_eq!(simplified, "x");
     }
 
     #[test]
-    fn test_scale_zero() {
+    fn test_mul_zero() {
         let rules = arith_rules();
-        let simplified = simplify("(scale Field 0 x)", &rules);
+        let simplified = simplify("(mul Field Field 0 x)", &rules);
         assert_eq!(simplified, "0");
     }
 
     #[test]
-    fn test_scale_dist() {
+    fn test_mul_scalar_dist() {
         let rules = all_rules();
         assert_merge(
-            "(scale Field c (add Field Field a b))",
-            "(add Field Field (scale Field c a) (scale Field c b))",
-            &rules, "scale-dist"
+            "(mul Field Field c (add Field Field a b))",
+            "(add Field Field (mul Field Field c a) (mul Field Field c b))",
+            &rules, "mul-scalar-dist"
         );
     }
 
     #[test]
-    fn test_sigma_factor_tscale() {
+    fn test_sigma_factor_scalar() {
         let rules = guarded_arith_rules();
         assert_merge(
-            "(Σ i 0 N (scale Field c (get Int arr i)))",
-            "(scale Field c (Σ i 0 N (get Int arr i)))",
-            &rules, "sigma-factor-scale"
+            "(Σ i 0 N (mul Field Int c (get Int arr i)))",
+            "(mul Field Int c (Σ i 0 N (get Int arr i)))",
+            &rules, "sigma-factor-scalar"
         );
     }
 
     #[test]
-    fn test_sigma_factor_tscale_blocked() {
+    fn test_sigma_factor_scalar_blocked() {
         let rules = guarded_arith_rules();
         assert_no_merge(
-            "(Σ i 0 N (scale Field i (get Int arr i)))",
-            "(scale Field i (Σ i 0 N (get Int arr i)))",
-            &rules, "sigma-factor-scale should NOT fire when scalar depends on loop var"
+            "(Σ i 0 N (mul Field Int i (get Int arr i)))",
+            "(mul Field Int i (Σ i 0 N (get Int arr i)))",
+            &rules, "sigma-factor-scalar should NOT fire when scalar depends on loop var"
         );
     }
 
@@ -484,12 +484,12 @@ mod tests {
     }
 
     #[test]
-    fn test_eval_tscale_distribution() {
+    fn test_eval_mul_scalar_distribution() {
         let rules = eval_rules();
         assert_merge(
-            "(eval DensePoly (scale DensePoly c p) x)",
+            "(eval DensePoly (mul Field DensePoly c p) x)",
             "(mul Field Field c (eval DensePoly p x))",
-            &rules, "eval-scale"
+            &rules, "eval-mul-scalar"
         );
     }
 

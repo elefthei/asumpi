@@ -179,13 +179,6 @@ impl Analysis<ArkLang> for TypeAnalysis {
                 types.insert(ArkType::Field);
             }
 
-            // ── Typed Scale ──
-            ArkLang::Scale([_t, c, a]) => {
-                free_vars.extend(&cd(c).free_vars);
-                free_vars.extend(&cd(a).free_vars);
-                types.extend(cd(a).types.iter().cloned());
-            }
-
             // ── Typed Pow ──
             ArkLang::Pow([_t, base, exp]) => {
                 free_vars.extend(&cd(base).free_vars);
@@ -342,7 +335,7 @@ mod tests {
 
     #[test]
     fn test_free_vars_sigma() {
-        let (egraph, ids) = make_egraph(&["(Σ i 0 N (scale Field c (get Int arr i)))"]);
+        let (egraph, ids) = make_egraph(&["(Σ i 0 N (mul Field Field c (get Int arr i)))"]);
         let data = &egraph[ids[0]].data;
         // i is bound by Σ; c, arr, N are free
         assert!(!data.free_vars.contains(&Symbol::from("i")));
@@ -411,12 +404,12 @@ mod tests {
 
     #[test]
     fn test_independent_of_true() {
-        let (mut egraph, _) = make_egraph(&["(Σ i 0 3 (scale Field c (get Int arr i)))"]);
+        let (mut egraph, _) = make_egraph(&["(Σ i 0 3 (mul Field Field c (get Int arr i)))"]);
         let cond = IndependentOf {
             expr_var: "?c".parse().unwrap(),
             idx_var: "?i".parse().unwrap(),
         };
-        let pat: Pattern<ArkLang> = "(Σ ?i ?lo ?hi (scale ?T ?c ?f))".parse().unwrap();
+        let pat: Pattern<ArkLang> = "(Σ ?i ?lo ?hi (mul Field ?T ?c ?f))".parse().unwrap();
         let matches = pat.search(&egraph);
         assert!(!matches.is_empty(), "pattern should match");
         for mat in &matches {
@@ -431,12 +424,12 @@ mod tests {
 
     #[test]
     fn test_independent_of_false() {
-        let (mut egraph, _) = make_egraph(&["(Σ i 0 3 (scale Field i (get Int arr i)))"]);
+        let (mut egraph, _) = make_egraph(&["(Σ i 0 3 (mul Field Field i (get Int arr i)))"]);
         let cond = IndependentOf {
             expr_var: "?c".parse().unwrap(),
             idx_var: "?i".parse().unwrap(),
         };
-        let pat: Pattern<ArkLang> = "(Σ ?i ?lo ?hi (scale ?T ?c ?f))".parse().unwrap();
+        let pat: Pattern<ArkLang> = "(Σ ?i ?lo ?hi (mul Field ?T ?c ?f))".parse().unwrap();
         let matches = pat.search(&egraph);
         assert!(!matches.is_empty(), "pattern should match");
         for mat in &matches {
@@ -453,12 +446,12 @@ mod tests {
     fn test_independent_of_complex_expr() {
         // c = (add Int Int a b), independent of i
         let (mut egraph, _) =
-            make_egraph(&["(Σ i 0 N (scale Field (add Int Int a b) (get Int arr i)))"]);
+            make_egraph(&["(Σ i 0 N (mul Field Field (add Int Int a b) (get Int arr i)))"]);
         let cond = IndependentOf {
             expr_var: "?c".parse().unwrap(),
             idx_var: "?i".parse().unwrap(),
         };
-        let pat: Pattern<ArkLang> = "(Σ ?i ?lo ?hi (scale ?T ?c ?f))".parse().unwrap();
+        let pat: Pattern<ArkLang> = "(Σ ?i ?lo ?hi (mul Field ?T ?c ?f))".parse().unwrap();
         let matches = pat.search(&egraph);
         assert!(!matches.is_empty());
         for mat in &matches {
@@ -475,12 +468,12 @@ mod tests {
     fn test_independent_of_expr_uses_idx() {
         // c = (add Int Int a i), depends on i
         let (mut egraph, _) =
-            make_egraph(&["(Σ i 0 N (scale Field (add Int Int a i) (get Int arr i)))"]);
+            make_egraph(&["(Σ i 0 N (mul Field Field (add Int Int a i) (get Int arr i)))"]);
         let cond = IndependentOf {
             expr_var: "?c".parse().unwrap(),
             idx_var: "?i".parse().unwrap(),
         };
-        let pat: Pattern<ArkLang> = "(Σ ?i ?lo ?hi (scale ?T ?c ?f))".parse().unwrap();
+        let pat: Pattern<ArkLang> = "(Σ ?i ?lo ?hi (mul Field ?T ?c ?f))".parse().unwrap();
         let matches = pat.search(&egraph);
         assert!(!matches.is_empty());
         for mat in &matches {
