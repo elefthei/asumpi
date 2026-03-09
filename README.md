@@ -1,26 +1,24 @@
 # arkΣΠ — Algebraic Language & Runtime
 
-A 47-node algebraic intermediate language with explicitly-typed arithmetic, indexed Σ/Π loops, FFT/IFFT, tuples, and explicit type coercions over BLS12-381 field/curve/polynomial types, optimized via egg's equality saturation with type-analysis-guarded rewrite rules.
+A 49-node algebraic intermediate language with explicitly-typed arithmetic, indexed Σ/Π loops, FFT/IFFT, tuples, and explicit type coercions over BLS12-381 field/curve/polynomial types, optimized via egg's equality saturation with type-analysis-guarded rewrite rules.
 
 ## Language Overview
 
 arkΣΠ uses S-expression syntax (native egg format). Expressions are parsed into `RecExpr<ArkLang>` and evaluated by a type-validated runtime interpreter.
 
-### Node Types (47 total)
+### Node Types (49 total)
 
 | Category | Nodes | Syntax |
 |----------|-------|--------|
-| **Typed Arithmetic** (6) | `add`, `neg`, `mul`, `inv`, `scale`, `pow` | `(add Field Field x y)`, `(scale Curve c P)` |
+| **Typed Arithmetic** (7) | `add`, `neg`, `mul`, `inv`, `scale`, `pow`, `coerce` | `(add Field Field x y)`, `(coerce Int Field 5)` |
 | **Type Tags** (11) | `Field`, `Curve`, `Int`, `Bool`, `DensePoly`, `SparsePoly`, `DenseMLE`, `SparseMLE`, `MVPoly`, `Array`, `Pair` | leaf nodes |
-| **Coercion** (1) | `coerce` | `(coerce Int Field 5)` |
 | **Evaluation & Queries** (3) | `eval`, `deg`, `nvars` | `(eval DensePoly p x)`, `(deg DensePoly p)` |
 | **Polynomial Constructors** (7) | `poly:duv`, `poly:suv`, `poly:dmle`, `poly:smle`, `poly:mv`, `ids`, `poly` | `(poly:duv 1 2 3)`, `(poly (ids x) ...)` |
 | **Poly-Specific** (2) | `pdiv`, `fix` | `(pdiv DensePoly p q)` → `Pair(quotient, remainder)` |
 | **Tuples** (3) | `pair`, `fst`, `snd` | `(fst (pdiv DensePoly a b))` |
 | **Indexed Sum/Product** (3) | `bound`, `Σ`, `Π` | `(Σ i 0 N body)` |
 | **FFT/Domain** (3) | `domain`, `fft`, `ifft` | `(fft DensePoly 8 p)`, `(domain 4)` |
-| **Array** (3) | `mkarray`, `alen`, `aadd` | `(aadd Array a b)` |
-| **Array Access** (2) | `select`, `store` | `(select Field arr 1)`, `(store Field arr 0 v)` |
+| **Array** (5) | `mkarray`, `alen`, `aadd`, `select`, `store` | `(aadd Array a b)`, `(select Field arr 1)` |
 | **Control** (2) | `let`, `if` | `(let x 5 (mul Int Int x x))` |
 | **Comparison** (1) | `eq` | `(eq Field a b)` |
 | **Primitives** (2) | `Num`, `Symbol` | `42`, `x` |
@@ -121,15 +119,18 @@ Human-readable syntax for building sparse polynomials:
 (store Field arr 0 v)                           ;; element update with type tag
 ```
 
-## Rewrite Rules (29 total)
+## Rewrite Rules (31 total)
 
-| Category | Count | Examples |
-|----------|-------|---------|
-| Algebra | 8 | `add-comm`, `mul-dist`, `scale-one`, `double-neg` |
-| Eval distribution | 4 | `eval-add`, `eval-neg`, `eval-scale`, `eval-mul` |
-| Σ/Π transforms | 6 | `sigma-unroll-1/2/3`, `sigma-dist-add`, `pi-unroll-1/2` |
-| Guarded Σ/arith | 5 | `sigma-factor-scale`, `sigma-factor-mul`, `sigma-fusion`, `mul-comm`, `mul-assoc` |
-| Conversion/structural | 6 | `ifft-fft`, `fst-pair`, `snd-pair`, `pair-eta`, `aadd-comm` |
+| Category | Function | Count | Examples |
+|----------|----------|-------|---------|
+| Algebra (add) | `add_rules` | 3 | `add-comm`, `add-assoc`, `add-neg` |
+| Algebra (arith) | `arith_rules` | 8 | `double-neg`, `mul-dist`, `scale-one`, `scale-zero`, `scale-dist` |
+| Eval distribution | `eval_rules` | 4 | `eval-add`, `eval-neg`, `eval-scale`, `eval-mul` |
+| Σ transforms | `sigma_rules` | 1 | `sigma-dist-add` |
+| Σ unrolling | `sigma_unroll_rules` | 2 | `sigma-unroll-2`, `sigma-unroll-3` |
+| Guarded Σ | `guarded_sigma_rules` | 1 | `sigma-fusion-add` |
+| Guarded arith | `guarded_arith_rules` | 2 | `sigma-factor-scale`, `sigma-factor-mul` |
+| Conversion/structural | `conversion_rules` | 10 | `ifft-fft`, `fst-pair`, `snd-pair`, `pair-eta`, `aadd-comm`, coerce roundtrips |
 
 Guarded rules use `TypeAnalysis` (egg `Analysis` trait) to track free variables per e-class. Factor extraction only fires when the scalar is independent of the loop variable.
 

@@ -31,11 +31,11 @@ S-expression string
 
 | Module | Role |
 |--------|------|
-| `language.rs` | `ArkLang` enum via `define_language!` — 47 node types (typed arithmetic, type tags, coerce, polynomials, Σ/Π loops, FFT, arrays, control flow) |
+| `language.rs` | `ArkLang` enum via `define_language!` — 49 node types (typed arithmetic, type tags, coerce, polynomials, Σ/Π loops, FFT, arrays, control flow) |
 | `value.rs` | `Value` enum (11 variants: Field, Curve, Polynomial, MLE, MVPoly, SparseUVPoly, SparseMLE, Array, Pair, Bool, Int) + `ArkType` enum + `EvalError` |
 | `eval.rs` | Recursive top-down evaluator. `eval(expr, env) -> Result<Value, EvalError>`. Type-validated arithmetic with explicit type tags. Also: `specialize()` for bound-variable substitution |
 | `analysis.rs` | `TypeAnalysis` (egg `Analysis` trait) — tracks type over-approximation + free variables per e-class. `IndependentOf` condition for guarded rewrites |
-| `rules.rs` | 29 rewrite rules in 8 groups: `add_rules`, `arith_rules`, `sigma_rules`, `guarded_sigma_rules`, `guarded_arith_rules`, `sigma_unroll_rules`, `eval_rules`, `conversion_rules`. Combined via `all_rules()` |
+| `rules.rs` | 31 rewrite rules in 8 groups: `add_rules`, `arith_rules`, `sigma_rules`, `guarded_sigma_rules`, `guarded_arith_rules`, `sigma_unroll_rules`, `eval_rules`, `conversion_rules`. Combined via `all_rules()` |
 | `main.rs` | Demo binary that runs 73 integration tests and writes `results.json` |
 
 ### Key type mappings
