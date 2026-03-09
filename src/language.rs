@@ -97,6 +97,16 @@ define_language! {
         "tinv"   = TInv([Id; 2]),
         "tscale" = TScale([Id; 3]),
         "tpow"   = TPow([Id; 3]),
+        "teval"  = TEval([Id; 3]),
+        "tdeg"   = TDeg([Id; 2]),
+        "tnvars" = TNVars([Id; 2]),
+        "tpdiv"  = TPDiv([Id; 3]),
+        "tfft"   = TFft([Id; 3]),
+        "tifft"  = TIfft([Id; 3]),
+        "tselect"= TSelect([Id; 3]),
+        "tstore" = TStore([Id; 4]),
+        "taadd"  = TAAdd([Id; 3]),
+        "teq"    = TEq([Id; 3]),
 
         // ── Variable Reference ──
         Symbol(egg::Symbol),

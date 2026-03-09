@@ -259,6 +259,40 @@ pub fn typed_guarded_sigma_rules() -> Vec<Rewrite<ArkLang, TypeAnalysis>> {
     ]
 }
 
+/// Typed eval-distribution rules (typed polynomial evaluation distributes).
+pub fn typed_eval_rules() -> Vec<Rewrite<ArkLang, TypeAnalysis>> {
+    vec![
+        rewrite!("teval-tadd"; "(teval ?T (tadd ?T ?T ?p ?q) ?x)"
+            => "(tadd Field Field (teval ?T ?p ?x) (teval ?T ?q ?x))"),
+        rewrite!("teval-tneg"; "(teval ?T (tneg ?T ?p) ?x)"
+            => "(tneg Field (teval ?T ?p ?x))"),
+        rewrite!("teval-tscale"; "(teval ?T (tscale ?T ?c ?p) ?x)"
+            => "(tmul Field Field ?c (teval ?T ?p ?x))"),
+        rewrite!("teval-tmul"; "(teval ?T (tmul ?T ?T ?p ?q) ?x)"
+            => "(tmul Field Field (teval ?T ?p ?x) (teval ?T ?q ?x))"),
+    ]
+}
+
+/// Typed conversion roundtrip rules (coerce + fft/ifft).
+pub fn typed_conversion_rules() -> Vec<Rewrite<ArkLang, TypeAnalysis>> {
+    vec![
+        // Coerce roundtrips
+        rewrite!("coerce-dense-sparse-roundtrip";
+            "(coerce DensePoly SparsePoly (coerce SparsePoly DensePoly ?p))" => "?p"),
+        rewrite!("coerce-sparse-dense-roundtrip";
+            "(coerce SparsePoly DensePoly (coerce DensePoly SparsePoly ?p))" => "?p"),
+        rewrite!("coerce-mle-poly-roundtrip";
+            "(coerce DensePoly DenseMLE (coerce DenseMLE DensePoly ?p))" => "?p"),
+        rewrite!("coerce-poly-mle-roundtrip";
+            "(coerce DenseMLE DensePoly (coerce DensePoly DenseMLE ?m))" => "?m"),
+        // Typed FFT/IFFT roundtrips
+        rewrite!("tifft-tfft"; "(tifft Array ?n (tfft ?T ?n ?p))" => "?p"),
+        rewrite!("tfft-tifft"; "(tfft DensePoly ?n (tifft Array ?n ?e))" => "?e"),
+        // Typed aadd commutativity
+        rewrite!("taadd-comm"; "(taadd ?T ?a ?b)" => "(taadd ?T ?b ?a)"),
+    ]
+}
+
 /// All rules combined (untyped + typed).
 pub fn all_rules() -> Vec<Rewrite<ArkLang, TypeAnalysis>> {
     let mut rules = algebra_rules();
@@ -272,6 +306,8 @@ pub fn all_rules() -> Vec<Rewrite<ArkLang, TypeAnalysis>> {
     rules.extend(typed_guarded_sigma_rules());
     rules.extend(typed_guarded_arith_rules());
     rules.extend(typed_sigma_unroll_rules());
+    rules.extend(typed_eval_rules());
+    rules.extend(typed_conversion_rules());
     rules
 }
 
@@ -985,6 +1021,110 @@ mod tests {
             "(Σ i 0 N (tmul Field Field c (select arr i)))",
             "(tmul Field Field c (Σ i 0 N (select arr i)))",
             &rules, "sigma-factor-tmul"
+        );
+    }
+
+    // ═══════════════════════════════════════════════
+    // Wave 3: Typed eval-distribution + conversion + aadd rules
+    // ═══════════════════════════════════════════════
+
+    #[test]
+    fn test_teval_tadd_distribution() {
+        let rules = typed_eval_rules();
+        assert_merge(
+            "(teval DensePoly (tadd DensePoly DensePoly p q) x)",
+            "(tadd Field Field (teval DensePoly p x) (teval DensePoly q x))",
+            &rules, "teval-tadd"
+        );
+    }
+
+    #[test]
+    fn test_teval_tneg_distribution() {
+        let rules = typed_eval_rules();
+        assert_merge(
+            "(teval DensePoly (tneg DensePoly p) x)",
+            "(tneg Field (teval DensePoly p x))",
+            &rules, "teval-tneg"
+        );
+    }
+
+    #[test]
+    fn test_teval_tscale_distribution() {
+        let rules = typed_eval_rules();
+        assert_merge(
+            "(teval DensePoly (tscale DensePoly c p) x)",
+            "(tmul Field Field c (teval DensePoly p x))",
+            &rules, "teval-tscale"
+        );
+    }
+
+    #[test]
+    fn test_teval_tmul_distribution() {
+        let rules = typed_eval_rules();
+        assert_merge(
+            "(teval DensePoly (tmul DensePoly DensePoly p q) x)",
+            "(tmul Field Field (teval DensePoly p x) (teval DensePoly q x))",
+            &rules, "teval-tmul"
+        );
+    }
+
+    #[test]
+    fn test_coerce_dense_sparse_roundtrip() {
+        let rules = typed_conversion_rules();
+        let simplified = simplify(
+            "(coerce DensePoly SparsePoly (coerce SparsePoly DensePoly p))",
+            &rules
+        );
+        assert_eq!(simplified, "p");
+    }
+
+    #[test]
+    fn test_coerce_sparse_dense_roundtrip() {
+        let rules = typed_conversion_rules();
+        let simplified = simplify(
+            "(coerce SparsePoly DensePoly (coerce DensePoly SparsePoly p))",
+            &rules
+        );
+        assert_eq!(simplified, "p");
+    }
+
+    #[test]
+    fn test_coerce_mle_poly_roundtrip() {
+        let rules = typed_conversion_rules();
+        let simplified = simplify(
+            "(coerce DensePoly DenseMLE (coerce DenseMLE DensePoly p))",
+            &rules
+        );
+        assert_eq!(simplified, "p");
+    }
+
+    #[test]
+    fn test_tifft_tfft_roundtrip_rule() {
+        let rules = typed_conversion_rules();
+        let simplified = simplify(
+            "(tifft Array n (tfft DensePoly n p))",
+            &rules
+        );
+        assert_eq!(simplified, "p");
+    }
+
+    #[test]
+    fn test_tfft_tifft_roundtrip_rule() {
+        let rules = typed_conversion_rules();
+        let simplified = simplify(
+            "(tfft DensePoly n (tifft Array n e))",
+            &rules
+        );
+        assert_eq!(simplified, "e");
+    }
+
+    #[test]
+    fn test_taadd_comm() {
+        let rules = typed_conversion_rules();
+        assert_merge(
+            "(taadd Field a b)",
+            "(taadd Field b a)",
+            &rules, "taadd-comm"
         );
     }
 }

@@ -313,6 +313,75 @@ impl Analysis<ArkLang> for TypeAnalysis {
                 free_vars.extend(&cd(exp).free_vars);
                 types.insert(ArkType::Field);
             }
+
+            // ── Typed Eval ──
+            ArkLang::TEval([_t, p, x]) => {
+                free_vars.extend(&cd(p).free_vars);
+                free_vars.extend(&cd(x).free_vars);
+                types.insert(ArkType::Field);
+            }
+
+            // ── Typed Deg ──
+            ArkLang::TDeg([_t, p]) => {
+                free_vars.extend(&cd(p).free_vars);
+                types.insert(ArkType::Int);
+            }
+
+            // ── Typed NVars ──
+            ArkLang::TNVars([_t, p]) => {
+                free_vars.extend(&cd(p).free_vars);
+                types.insert(ArkType::Int);
+            }
+
+            // ── Typed PDiv ──
+            ArkLang::TPDiv([_t, a, b]) => {
+                free_vars.extend(&cd(a).free_vars);
+                free_vars.extend(&cd(b).free_vars);
+                types.extend(&cd(a).types);
+            }
+
+            // ── Typed FFT ──
+            ArkLang::TFft([_t, n, p]) => {
+                free_vars.extend(&cd(n).free_vars);
+                free_vars.extend(&cd(p).free_vars);
+                types.insert(ArkType::Array);
+            }
+
+            // ── Typed IFFT ──
+            ArkLang::TIfft([_t, n, evals]) => {
+                free_vars.extend(&cd(n).free_vars);
+                free_vars.extend(&cd(evals).free_vars);
+                types.insert(ArkType::DensePoly);
+            }
+
+            // ── Typed Select ──
+            ArkLang::TSelect([_t, arr, idx]) => {
+                free_vars.extend(&cd(arr).free_vars);
+                free_vars.extend(&cd(idx).free_vars);
+                types.extend(&cd(arr).types); // element type from the tag
+            }
+
+            // ── Typed Store ──
+            ArkLang::TStore([_t, arr, idx, val]) => {
+                free_vars.extend(&cd(arr).free_vars);
+                free_vars.extend(&cd(idx).free_vars);
+                free_vars.extend(&cd(val).free_vars);
+                types.insert(ArkType::Array);
+            }
+
+            // ── Typed AAdd ──
+            ArkLang::TAAdd([_t, a, b]) => {
+                free_vars.extend(&cd(a).free_vars);
+                free_vars.extend(&cd(b).free_vars);
+                types.insert(ArkType::Array);
+            }
+
+            // ── Typed Eq ──
+            ArkLang::TEq([_t, a, b]) => {
+                free_vars.extend(&cd(a).free_vars);
+                free_vars.extend(&cd(b).free_vars);
+                types.insert(ArkType::Bool);
+            }
         }
 
         TypeData { types, free_vars }

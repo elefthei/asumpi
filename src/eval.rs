@@ -614,6 +614,245 @@ fn eval_id(expr: &RecExpr<ArkLang>, id: Id, env: &Env) -> Result<Value, EvalErro
                 _ => Err(EvalError::TypeError(format!("tpow: only Field supported, got {:?}", ty))),
             }
         }
+
+        // ── Typed Eval ──
+        ArkLang::TEval([t, p, x]) => {
+            let ty = resolve_type_tag(expr, *t)?;
+            let vp = eval_id(expr, *p, env)?;
+            validate_type(&vp, ty)?;
+            match vp {
+                Value::Polynomial(poly) => {
+                    let xv = eval_id(expr, *x, env)?.as_field()?;
+                    Ok(Value::Field(poly.evaluate(&xv)))
+                }
+                Value::SparseUVPoly(sp) => {
+                    let xv = eval_id(expr, *x, env)?.as_field()?;
+                    Ok(Value::Field(Polynomial::evaluate(&sp, &xv)))
+                }
+                Value::MLE(m) => {
+                    let arr = eval_id(expr, *x, env)?.as_array()?;
+                    let point_fr: Vec<Fr> = arr.into_iter()
+                        .map(|v| v.as_field())
+                        .collect::<Result<_, _>>()?;
+                    Ok(Value::Field(m.evaluate(&point_fr)))
+                }
+                Value::SparseMLE(m) => {
+                    let arr = eval_id(expr, *x, env)?.as_array()?;
+                    let point_fr: Vec<Fr> = arr.into_iter()
+                        .map(|v| v.as_field())
+                        .collect::<Result<_, _>>()?;
+                    Ok(Value::Field(m.evaluate(&point_fr)))
+                }
+                Value::MVPoly(p) => {
+                    let arr = eval_id(expr, *x, env)?.as_array()?;
+                    let point_fr: Vec<Fr> = arr.into_iter()
+                        .map(|v| v.as_field())
+                        .collect::<Result<_, _>>()?;
+                    Ok(Value::Field(p.evaluate(&point_fr)))
+                }
+                _ => Err(EvalError::TypeError(format!(
+                    "teval: unsupported type {:?}", ty
+                ))),
+            }
+        }
+
+        // ── Typed Deg ──
+        ArkLang::TDeg([t, p]) => {
+            let ty = resolve_type_tag(expr, *t)?;
+            let vp = eval_id(expr, *p, env)?;
+            validate_type(&vp, ty)?;
+            match vp {
+                Value::Polynomial(p) => Ok(Value::Int(p.degree() as i64)),
+                Value::SparseUVPoly(p) => Ok(Value::Int(p.degree() as i64)),
+                Value::MVPoly(p) => Ok(Value::Int(p.degree() as i64)),
+                Value::MLE(m) => Ok(Value::Int(m.num_vars() as i64)),
+                Value::SparseMLE(m) => Ok(Value::Int(m.num_vars() as i64)),
+                _ => Err(EvalError::TypeError(format!(
+                    "tdeg: unsupported type {:?}", ty
+                ))),
+            }
+        }
+
+        // ── Typed NVars ──
+        ArkLang::TNVars([t, p]) => {
+            let ty = resolve_type_tag(expr, *t)?;
+            let vp = eval_id(expr, *p, env)?;
+            validate_type(&vp, ty)?;
+            match vp {
+                Value::MLE(m) => Ok(Value::Int(m.num_vars() as i64)),
+                Value::SparseMLE(m) => Ok(Value::Int(m.num_vars() as i64)),
+                Value::MVPoly(p) => Ok(Value::Int(p.num_vars() as i64)),
+                Value::Polynomial(_) | Value::SparseUVPoly(_) => Ok(Value::Int(1)),
+                _ => Err(EvalError::TypeError(format!(
+                    "tnvars: unsupported type {:?}", ty
+                ))),
+            }
+        }
+
+        // ── Typed PDiv ──
+        ArkLang::TPDiv([t, a, b]) => {
+            let ty = resolve_type_tag(expr, *t)?;
+            if ty != ArkType::DensePoly {
+                return Err(EvalError::TypeError(format!(
+                    "tpdiv: only DensePoly supported, got {:?}", ty
+                )));
+            }
+            let va = eval_id(expr, *a, env)?;
+            validate_type(&va, ty)?;
+            let vb = eval_id(expr, *b, env)?;
+            validate_type(&vb, ty)?;
+            let pa = va.as_polynomial()?;
+            let pb = vb.as_polynomial()?;
+            if pb.is_zero() {
+                return Err(EvalError::DivisionByZero);
+            }
+            let a_sparse = DenseOrSparsePolynomial::from(&pa);
+            let b_sparse = DenseOrSparsePolynomial::from(&pb);
+            let (q, r) = a_sparse.divide_with_q_and_r(&b_sparse)
+                .ok_or(EvalError::DivisionByZero)?;
+            Ok(Value::Pair(Box::new(Value::Polynomial(q)), Box::new(Value::Polynomial(r))))
+        }
+
+        // ── Typed FFT ──
+        ArkLang::TFft([t, n, p]) => {
+            let ty = resolve_type_tag(expr, *t)?;
+            let size = eval_id(expr, *n, env)?.as_int()? as usize;
+            let domain = GeneralEvaluationDomain::<Fr>::new(size)
+                .ok_or_else(|| EvalError::TypeError(format!(
+                    "tfft: cannot create evaluation domain of size {}", size
+                )))?;
+            let vp = eval_id(expr, *p, env)?;
+            validate_type(&vp, ty)?;
+            let coeffs: Vec<Fr> = match vp {
+                Value::Polynomial(poly) => poly.coeffs.clone(),
+                Value::SparseUVPoly(sp) => {
+                    let deg = sp.degree();
+                    let mut dense = vec![Fr::zero(); deg + 1];
+                    for (i, c) in sp.to_vec().iter() {
+                        if *i <= deg { dense[*i] = *c; }
+                    }
+                    dense
+                }
+                Value::Array(arr) => arr.into_iter()
+                    .map(|v| v.as_field())
+                    .collect::<Result<_, _>>()?,
+                _ => return Err(EvalError::TypeError(format!(
+                    "tfft: expected polynomial or array, got {:?}", ty
+                ))),
+            };
+            let evals = domain.fft(&coeffs);
+            Ok(Value::Array(evals.into_iter().map(Value::Field).collect()))
+        }
+
+        // ── Typed IFFT ──
+        ArkLang::TIfft([t, n, e]) => {
+            let ty = resolve_type_tag(expr, *t)?;
+            if ty != ArkType::Array {
+                return Err(EvalError::TypeError(format!(
+                    "tifft: expected Array type tag, got {:?}", ty
+                )));
+            }
+            let size = eval_id(expr, *n, env)?.as_int()? as usize;
+            let domain = GeneralEvaluationDomain::<Fr>::new(size)
+                .ok_or_else(|| EvalError::TypeError(format!(
+                    "tifft: cannot create evaluation domain of size {}", size
+                )))?;
+            let ve = eval_id(expr, *e, env)?.as_array()?;
+            let evals: Vec<Fr> = ve.into_iter()
+                .map(|v| v.as_field())
+                .collect::<Result<_, _>>()?;
+            let coeffs = domain.ifft(&evals);
+            let mut trimmed = coeffs;
+            while trimmed.len() > 1 && trimmed.last().map_or(false, |c| c.is_zero()) {
+                trimmed.pop();
+            }
+            Ok(Value::Polynomial(DensePolynomial::from_coefficients_vec(trimmed)))
+        }
+
+        // ── Typed Select ──
+        ArkLang::TSelect([_t, arr, idx]) => {
+            // Type tag describes element type — validated post-hoc
+            let va = eval_id(expr, *arr, env)?.as_array()?;
+            let vi = eval_id(expr, *idx, env)?.as_int()?;
+            let i = vi as usize;
+            if i >= va.len() {
+                return Err(EvalError::IndexOutOfBounds {
+                    index: i,
+                    len: va.len(),
+                });
+            }
+            Ok(va[i].clone())
+        }
+
+        // ── Typed Store ──
+        ArkLang::TStore([_t, arr, idx, val]) => {
+            let mut va = eval_id(expr, *arr, env)?.as_array()?;
+            let vi = eval_id(expr, *idx, env)?.as_int()?;
+            let vv = eval_id(expr, *val, env)?;
+            let i = vi as usize;
+            if i >= va.len() {
+                return Err(EvalError::IndexOutOfBounds {
+                    index: i,
+                    len: va.len(),
+                });
+            }
+            if !va.is_empty() {
+                let expected = va[0].type_name();
+                let got = vv.type_name();
+                if got != expected {
+                    return Err(EvalError::TypeMismatch {
+                        expected: expected.to_string(),
+                        got: got.to_string(),
+                    });
+                }
+            }
+            va[i] = vv;
+            Ok(Value::Array(va))
+        }
+
+        // ── Typed AAdd ──
+        ArkLang::TAAdd([t, a, b]) => {
+            let ty = resolve_type_tag(expr, *t)?;
+            if ty != ArkType::Field {
+                return Err(EvalError::TypeError(format!(
+                    "taadd: only Field element arrays supported, got {:?}", ty
+                )));
+            }
+            let va = eval_id(expr, *a, env)?.as_array()?;
+            let vb = eval_id(expr, *b, env)?.as_array()?;
+            let len = va.len().max(vb.len());
+            let mut result = Vec::with_capacity(len);
+            for i in 0..len {
+                let fa = if i < va.len() { va[i].as_field()? } else { Fr::zero() };
+                let fb = if i < vb.len() { vb[i].as_field()? } else { Fr::zero() };
+                result.push(Value::Field(fa + fb));
+            }
+            Ok(Value::Array(result))
+        }
+
+        // ── Typed Eq ──
+        ArkLang::TEq([t, a, b]) => {
+            let ty = resolve_type_tag(expr, *t)?;
+            let va = eval_id(expr, *a, env)?;
+            validate_type(&va, ty)?;
+            let vb = eval_id(expr, *b, env)?;
+            validate_type(&vb, ty)?;
+            match ty {
+                ArkType::Field | ArkType::Int => {
+                    let fa = va.as_field()?;
+                    let fb = vb.as_field()?;
+                    Ok(Value::Bool(fa == fb))
+                }
+                ArkType::Bool => {
+                    let ba = va.as_bool()?;
+                    let bb = vb.as_bool()?;
+                    Ok(Value::Bool(ba == bb))
+                }
+                _ => Err(EvalError::TypeError(format!(
+                    "teq: unsupported type {:?}", ty
+                ))),
+            }
+        }
     }
 }
 
@@ -1361,6 +1600,10 @@ mod tests {
 
     fn empty_env() -> Env {
         HashMap::new()
+    }
+
+    fn fr(n: u64) -> Fr {
+        Fr::from(n)
     }
 
     fn eval_str(s: &str, env: &Env) -> Result<Value, EvalError> {
@@ -2604,5 +2847,194 @@ mod tests {
     fn test_tpow_non_field() {
         let env = empty_env();
         assert!(eval_str("(tpow DensePoly (poly:duv 1 2) 3)", &env).is_err());
+    }
+
+    // ═══════════════════════════════════════════════
+    // Wave 3: Typed query/poly/array/comparison ops
+    // ═══════════════════════════════════════════════
+
+    // ── TEval ──
+    #[test]
+    fn test_teval_dense_poly() {
+        let env = empty_env();
+        // p(x) = 1 + 2x, evaluate at x=3 → 1 + 6 = 7
+        let v = eval_str("(teval DensePoly (poly:duv 1 2) (coerce Int Field 3))", &env).unwrap();
+        assert_eq!(v, Value::Field(fr(7)));
+    }
+
+    #[test]
+    fn test_teval_sparse_poly() {
+        let env = empty_env();
+        // p(x) = 5x^2, evaluate at x=2 → 20
+        let v = eval_str("(teval SparsePoly (poly:suv 2 5) (coerce Int Field 2))", &env).unwrap();
+        assert_eq!(v, Value::Field(fr(20)));
+    }
+
+    #[test]
+    fn test_teval_dense_mle() {
+        let env = empty_env();
+        // 1-var MLE [3, 7], evaluate at [0] → 3
+        let v = eval_str("(teval DenseMLE (poly:dmle 1 (mkarray 3 7)) (mkarray (coerce Int Field 0)))", &env).unwrap();
+        assert_eq!(v, Value::Field(fr(3)));
+    }
+
+    #[test]
+    fn test_teval_type_mismatch() {
+        let env = empty_env();
+        assert!(eval_str("(teval Field (poly:duv 1 2) (coerce Int Field 3))", &env).is_err());
+    }
+
+    // ── TDeg ──
+    #[test]
+    fn test_tdeg_dense_poly() {
+        let env = empty_env();
+        // p(x) = 1 + 2x + 3x^2 → degree 2
+        let v = eval_str("(tdeg DensePoly (poly:duv 1 2 3))", &env).unwrap();
+        assert_eq!(v, Value::Int(2));
+    }
+
+    #[test]
+    fn test_tdeg_sparse_poly() {
+        let env = empty_env();
+        let v = eval_str("(tdeg SparsePoly (poly:suv 3 1))", &env).unwrap();
+        assert_eq!(v, Value::Int(3));
+    }
+
+    #[test]
+    fn test_tdeg_type_mismatch() {
+        let env = empty_env();
+        assert!(eval_str("(tdeg Field (coerce Int Field 5))", &env).is_err());
+    }
+
+    // ── TNVars ──
+    #[test]
+    fn test_tnvars_mle() {
+        let env = empty_env();
+        // 2-var MLE [1,2,3,4]
+        let v = eval_str("(tnvars DenseMLE (poly:dmle 2 (mkarray 1 2 3 4)))", &env).unwrap();
+        assert_eq!(v, Value::Int(2));
+    }
+
+    #[test]
+    fn test_tnvars_uv_poly() {
+        let env = empty_env();
+        let v = eval_str("(tnvars DensePoly (poly:duv 1 2))", &env).unwrap();
+        assert_eq!(v, Value::Int(1));
+    }
+
+    // ── TPDiv ──
+    #[test]
+    fn test_tpdiv() {
+        let env = empty_env();
+        // (x^2 + 2x + 1) / (x + 1) = (x + 1, 0)
+        let v = eval_str("(tpdiv DensePoly (poly:duv 1 2 1) (poly:duv 1 1))", &env).unwrap();
+        match v {
+            Value::Pair(q, r) => {
+                // quotient = x + 1 → coeffs [1, 1]
+                let qp = q.as_polynomial().unwrap();
+                assert_eq!(qp.coeffs.len(), 2);
+                assert_eq!(qp.coeffs[0], fr(1));
+                assert_eq!(qp.coeffs[1], fr(1));
+                // remainder = 0
+                let rp = r.as_polynomial().unwrap();
+                assert!(rp.is_zero());
+            }
+            _ => panic!("expected pair"),
+        }
+    }
+
+    #[test]
+    fn test_tpdiv_type_mismatch() {
+        let env = empty_env();
+        assert!(eval_str("(tpdiv SparsePoly (poly:suv 0 1) (poly:suv 0 1))", &env).is_err());
+    }
+
+    // ── TFft / TIfft ──
+    #[test]
+    fn test_tfft_dense_poly() {
+        let env = empty_env();
+        // FFT of constant poly [5] over domain size 4 → [5, 5, 5, 5]
+        let v = eval_str("(tfft DensePoly 4 (poly:duv 5))", &env).unwrap();
+        let arr = v.as_array().unwrap();
+        assert_eq!(arr.len(), 4);
+        for el in &arr {
+            assert_eq!(el.as_field().unwrap(), fr(5));
+        }
+    }
+
+    #[test]
+    fn test_tifft_array() {
+        let env = empty_env();
+        // IFFT of constant evaluations [5,5,5,5] → constant poly [5]
+        let v = eval_str("(tifft Array 4 (mkarray (coerce Int Field 5) (coerce Int Field 5) (coerce Int Field 5) (coerce Int Field 5)))", &env).unwrap();
+        let p = v.as_polynomial().unwrap();
+        assert_eq!(p.coeffs.len(), 1);
+        assert_eq!(p.coeffs[0], fr(5));
+    }
+
+    #[test]
+    fn test_tfft_tifft_roundtrip() {
+        let env = empty_env();
+        // FFT then IFFT should recover the original polynomial
+        let v = eval_str("(tifft Array 4 (tfft DensePoly 4 (poly:duv 1 2 3)))", &env).unwrap();
+        let p = v.as_polynomial().unwrap();
+        assert_eq!(p.coeffs[0], fr(1));
+        assert_eq!(p.coeffs[1], fr(2));
+        assert_eq!(p.coeffs[2], fr(3));
+    }
+
+    // ── TSelect / TStore ──
+    #[test]
+    fn test_tselect() {
+        let env = empty_env();
+        let v = eval_str("(tselect Field (mkarray (coerce Int Field 10) (coerce Int Field 20) (coerce Int Field 30)) 1)", &env).unwrap();
+        assert_eq!(v, Value::Field(fr(20)));
+    }
+
+    #[test]
+    fn test_tselect_out_of_bounds() {
+        let env = empty_env();
+        assert!(eval_str("(tselect Field (mkarray (coerce Int Field 1)) 5)", &env).is_err());
+    }
+
+    #[test]
+    fn test_tstore() {
+        let env = empty_env();
+        let v = eval_str("(tstore Field (mkarray (coerce Int Field 10) (coerce Int Field 20)) 0 (coerce Int Field 99))", &env).unwrap();
+        let arr = v.as_array().unwrap();
+        assert_eq!(arr[0], Value::Field(fr(99)));
+        assert_eq!(arr[1], Value::Field(fr(20)));
+    }
+
+    // ── TAAdd ──
+    #[test]
+    fn test_taadd() {
+        let env = empty_env();
+        let v = eval_str("(taadd Field (mkarray (coerce Int Field 1) (coerce Int Field 2)) (mkarray (coerce Int Field 10) (coerce Int Field 20)))", &env).unwrap();
+        let arr = v.as_array().unwrap();
+        assert_eq!(arr[0], Value::Field(fr(11)));
+        assert_eq!(arr[1], Value::Field(fr(22)));
+    }
+
+    // ── TEq ──
+    #[test]
+    fn test_teq_field_true() {
+        let env = empty_env();
+        let v = eval_str("(teq Field (coerce Int Field 42) (coerce Int Field 42))", &env).unwrap();
+        assert_eq!(v, Value::Bool(true));
+    }
+
+    #[test]
+    fn test_teq_field_false() {
+        let env = empty_env();
+        let v = eval_str("(teq Field (coerce Int Field 1) (coerce Int Field 2))", &env).unwrap();
+        assert_eq!(v, Value::Bool(false));
+    }
+
+    #[test]
+    fn test_teq_type_mismatch() {
+        let env = empty_env();
+        // Passing a DensePoly when tag says Field
+        assert!(eval_str("(teq Field (poly:duv 1 2) (coerce Int Field 3))", &env).is_err());
     }
 }
