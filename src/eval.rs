@@ -42,10 +42,14 @@ fn eval_id(expr: &RecExpr<ArkLang>, id: Id, env: &Env) -> Result<Value, EvalErro
             .cloned()
             .ok_or_else(|| EvalError::UnboundVariable(s.to_string())),
 
-        // ── Polynomial Constructors ──
-        ArkLang::PolyDUV(_) | ArkLang::PolySUV(_) | ArkLang::PolyDMLE(_)
-        | ArkLang::PolySMLE(_) | ArkLang::PolyMV(_) => {
-            eval_poly_constructor(expr, node, env)
+        // ── Compound Type Tag (not directly evaluable) ──
+        ArkLang::ArrayOf(_) => {
+            Err(EvalError::TypeError("arrayof is a type tag, not an expression".into()))
+        }
+
+        // ── Symbolic MLE Constructor (placeholder) ──
+        ArkLang::Mle(_) => {
+            Err(EvalError::TypeError("mle: not yet implemented".into()))
         }
 
         // ── Symbolic Polynomial Constructor ──
@@ -156,7 +160,7 @@ fn eval_id(expr: &RecExpr<ArkLang>, id: Id, env: &Env) -> Result<Value, EvalErro
             Ok(Value::Array(vals))
         }
 
-        ArkLang::ALen([arr]) => {
+        ArkLang::Length([arr]) => {
             let va = eval_id(expr, *arr, env)?.as_array()?;
             Ok(Value::Int(va.len() as i64))
         }
@@ -199,7 +203,7 @@ fn eval_id(expr: &RecExpr<ArkLang>, id: Id, env: &Env) -> Result<Value, EvalErro
             let src_ty = resolve_type_tag(expr, *src)?;
             let dst_ty = resolve_type_tag(expr, *dst)?;
             let val = eval_id(expr, *x, env)?;
-            validate_type(&val, src_ty)?;
+            validate_type(&val, &src_ty)?;
             eval_coerce(src_ty, dst_ty, val)
         }
 
@@ -209,8 +213,8 @@ fn eval_id(expr: &RecExpr<ArkLang>, id: Id, env: &Env) -> Result<Value, EvalErro
             let ty_b = resolve_type_tag(expr, *tb)?;
             let va = eval_id(expr, *a, env)?;
             let vb = eval_id(expr, *b, env)?;
-            validate_type(&va, ty_a)?;
-            validate_type(&vb, ty_b)?;
+            validate_type(&va, &ty_a)?;
+            validate_type(&vb, &ty_b)?;
             typed_add(ty_a, ty_b, va, vb)
         }
 
@@ -218,7 +222,7 @@ fn eval_id(expr: &RecExpr<ArkLang>, id: Id, env: &Env) -> Result<Value, EvalErro
         ArkLang::Neg([t, a]) => {
             let ty = resolve_type_tag(expr, *t)?;
             let va = eval_id(expr, *a, env)?;
-            validate_type(&va, ty)?;
+            validate_type(&va, &ty)?;
             typed_neg(ty, va)
         }
 
@@ -228,8 +232,8 @@ fn eval_id(expr: &RecExpr<ArkLang>, id: Id, env: &Env) -> Result<Value, EvalErro
             let ty_b = resolve_type_tag(expr, *tb)?;
             let va = eval_id(expr, *a, env)?;
             let vb = eval_id(expr, *b, env)?;
-            validate_type(&va, ty_a)?;
-            validate_type(&vb, ty_b)?;
+            validate_type(&va, &ty_a)?;
+            validate_type(&vb, &ty_b)?;
             typed_mul(ty_a, ty_b, va, vb)
         }
 
@@ -237,7 +241,7 @@ fn eval_id(expr: &RecExpr<ArkLang>, id: Id, env: &Env) -> Result<Value, EvalErro
         ArkLang::Inv([t, a]) => {
             let ty = resolve_type_tag(expr, *t)?;
             let va = eval_id(expr, *a, env)?;
-            validate_type(&va, ty)?;
+            validate_type(&va, &ty)?;
             match ty {
                 ArkType::Field => {
                     let f = va.as_field()?;
@@ -253,7 +257,7 @@ fn eval_id(expr: &RecExpr<ArkLang>, id: Id, env: &Env) -> Result<Value, EvalErro
             let vc = eval_id(expr, *c, env)?;
             let scalar = vc.as_field()?; // accepts both Field and Int
             let va = eval_id(expr, *a, env)?;
-            validate_type(&va, ty)?;
+            validate_type(&va, &ty)?;
             typed_scale(ty, scalar, va)
         }
 
@@ -261,9 +265,9 @@ fn eval_id(expr: &RecExpr<ArkLang>, id: Id, env: &Env) -> Result<Value, EvalErro
         ArkLang::Pow([t, base, exp]) => {
             let ty = resolve_type_tag(expr, *t)?;
             let vb = eval_id(expr, *base, env)?;
-            validate_type(&vb, ty)?;
+            validate_type(&vb, &ty)?;
             let ve = eval_id(expr, *exp, env)?;
-            validate_type(&ve, ArkType::Int)?;
+            validate_type(&ve, &ArkType::Int)?;
             match ty {
                 ArkType::Field => {
                     let b = vb.as_field()?;
@@ -287,7 +291,7 @@ fn eval_id(expr: &RecExpr<ArkLang>, id: Id, env: &Env) -> Result<Value, EvalErro
         ArkLang::Eval([t, p, x]) => {
             let ty = resolve_type_tag(expr, *t)?;
             let vp = eval_id(expr, *p, env)?;
-            validate_type(&vp, ty)?;
+            validate_type(&vp, &ty)?;
             match vp {
                 Value::Polynomial(poly) => {
                     let xv = eval_id(expr, *x, env)?.as_field()?;
@@ -328,7 +332,7 @@ fn eval_id(expr: &RecExpr<ArkLang>, id: Id, env: &Env) -> Result<Value, EvalErro
         ArkLang::Deg([t, p]) => {
             let ty = resolve_type_tag(expr, *t)?;
             let vp = eval_id(expr, *p, env)?;
-            validate_type(&vp, ty)?;
+            validate_type(&vp, &ty)?;
             match vp {
                 Value::Polynomial(p) => Ok(Value::Int(p.degree() as i64)),
                 Value::SparseUVPoly(p) => Ok(Value::Int(p.degree() as i64)),
@@ -345,7 +349,7 @@ fn eval_id(expr: &RecExpr<ArkLang>, id: Id, env: &Env) -> Result<Value, EvalErro
         ArkLang::NVars([t, p]) => {
             let ty = resolve_type_tag(expr, *t)?;
             let vp = eval_id(expr, *p, env)?;
-            validate_type(&vp, ty)?;
+            validate_type(&vp, &ty)?;
             match vp {
                 Value::MLE(m) => Ok(Value::Int(m.num_vars() as i64)),
                 Value::SparseMLE(m) => Ok(Value::Int(m.num_vars() as i64)),
@@ -357,18 +361,18 @@ fn eval_id(expr: &RecExpr<ArkLang>, id: Id, env: &Env) -> Result<Value, EvalErro
             }
         }
 
-        // ── Typed PDiv ──
-        ArkLang::PDiv([t, a, b]) => {
+        // ── Typed Div ──
+        ArkLang::Div([t, a, b]) => {
             let ty = resolve_type_tag(expr, *t)?;
             if ty != ArkType::DensePoly {
                 return Err(EvalError::TypeError(format!(
-                    "pdiv: only DensePoly supported, got {:?}", ty
+                    "div: only DensePoly supported, got {:?}", ty
                 )));
             }
             let va = eval_id(expr, *a, env)?;
-            validate_type(&va, ty)?;
+            validate_type(&va, &ty)?;
             let vb = eval_id(expr, *b, env)?;
-            validate_type(&vb, ty)?;
+            validate_type(&vb, &ty)?;
             let pa = va.as_polynomial()?;
             let pb = vb.as_polynomial()?;
             if pb.is_zero() {
@@ -390,7 +394,7 @@ fn eval_id(expr: &RecExpr<ArkLang>, id: Id, env: &Env) -> Result<Value, EvalErro
                     "fft: cannot create evaluation domain of size {}", size
                 )))?;
             let vp = eval_id(expr, *p, env)?;
-            validate_type(&vp, ty)?;
+            validate_type(&vp, &ty)?;
             let coeffs: Vec<Fr> = match vp {
                 Value::Polynomial(poly) => poly.coeffs.clone(),
                 Value::SparseUVPoly(sp) => {
@@ -437,8 +441,8 @@ fn eval_id(expr: &RecExpr<ArkLang>, id: Id, env: &Env) -> Result<Value, EvalErro
             Ok(Value::Polynomial(DensePolynomial::from_coefficients_vec(trimmed)))
         }
 
-        // ── Typed Select ──
-        ArkLang::Select([_t, arr, idx]) => {
+        // ── Typed Get ──
+        ArkLang::Get([_t, arr, idx]) => {
             // Type tag describes element type — validated post-hoc
             let va = eval_id(expr, *arr, env)?.as_array()?;
             let vi = eval_id(expr, *idx, env)?.as_int()?;
@@ -452,8 +456,8 @@ fn eval_id(expr: &RecExpr<ArkLang>, id: Id, env: &Env) -> Result<Value, EvalErro
             Ok(va[i].clone())
         }
 
-        // ── Typed Store ──
-        ArkLang::Store([_t, arr, idx, val]) => {
+        // ── Typed Set ──
+        ArkLang::Set([_t, arr, idx, val]) => {
             let mut va = eval_id(expr, *arr, env)?.as_array()?;
             let vi = eval_id(expr, *idx, env)?.as_int()?;
             let vv = eval_id(expr, *val, env)?;
@@ -478,33 +482,13 @@ fn eval_id(expr: &RecExpr<ArkLang>, id: Id, env: &Env) -> Result<Value, EvalErro
             Ok(Value::Array(va))
         }
 
-        // ── Typed AAdd ──
-        ArkLang::AAdd([t, a, b]) => {
-            let ty = resolve_type_tag(expr, *t)?;
-            if ty != ArkType::Field {
-                return Err(EvalError::TypeError(format!(
-                    "aadd: only Field element arrays supported, got {:?}", ty
-                )));
-            }
-            let va = eval_id(expr, *a, env)?.as_array()?;
-            let vb = eval_id(expr, *b, env)?.as_array()?;
-            let len = va.len().max(vb.len());
-            let mut result = Vec::with_capacity(len);
-            for i in 0..len {
-                let fa = if i < va.len() { va[i].as_field()? } else { Fr::zero() };
-                let fb = if i < vb.len() { vb[i].as_field()? } else { Fr::zero() };
-                result.push(Value::Field(fa + fb));
-            }
-            Ok(Value::Array(result))
-        }
-
         // ── Typed Eq ──
         ArkLang::Eq([t, a, b]) => {
             let ty = resolve_type_tag(expr, *t)?;
             let va = eval_id(expr, *a, env)?;
-            validate_type(&va, ty)?;
+            validate_type(&va, &ty)?;
             let vb = eval_id(expr, *b, env)?;
-            validate_type(&vb, ty)?;
+            validate_type(&vb, &ty)?;
             match ty {
                 ArkType::Field | ArkType::Int => {
                     let fa = va.as_field()?;
@@ -526,21 +510,29 @@ fn eval_id(expr: &RecExpr<ArkLang>, id: Id, env: &Env) -> Result<Value, EvalErro
 
 /// Resolve a type-tag AST node to its ArkType.
 fn resolve_type_tag(expr: &RecExpr<ArkLang>, id: Id) -> Result<ArkType, EvalError> {
+    // Handle compound type tags like (arrayof T)
+    if let ArkLang::ArrayOf([inner]) = &expr[id] {
+        let elem_ty = resolve_type_tag(expr, *inner)?;
+        return Ok(ArkType::ArrayOf(Box::new(elem_ty)));
+    }
     tag_to_type(&expr[id]).ok_or_else(|| {
         EvalError::TypeError(format!(
-            "expected a type tag (Field, Curve, Int, ...), got {:?}",
+            "expected a type tag (Field, Curve, Int, ..., (arrayof T)), got {:?}",
             expr[id]
         ))
     })
 }
 
 /// Validate that a runtime value matches the expected type tag.
-fn validate_type(val: &Value, expected: ArkType) -> Result<(), EvalError> {
+fn validate_type(val: &Value, expected: &ArkType) -> Result<(), EvalError> {
     let actual = val.ark_type();
-    if actual == expected {
+    if actual == *expected {
         Ok(())
-    } else if actual == ArkType::Int && expected == ArkType::Field {
+    } else if actual == ArkType::Int && *expected == ArkType::Field {
         // Int auto-coerces to Field (via as_field())
+        Ok(())
+    } else if matches!(expected, ArkType::ArrayOf(_)) && actual == ArkType::Array {
+        // ArrayOf(T) accepts any Array value (element types checked at use site)
         Ok(())
     } else {
         Err(EvalError::TypeMismatch {
@@ -553,7 +545,7 @@ fn validate_type(val: &Value, expected: ArkType) -> Result<(), EvalError> {
 /// Perform an explicit type coercion.
 fn eval_coerce(src: ArkType, dst: ArkType, val: Value) -> Result<Value, EvalError> {
     use ArkType::*;
-    match (src, dst) {
+    match (&src, &dst) {
         // Identity
         (s, d) if s == d => Ok(val),
 
@@ -716,6 +708,31 @@ fn eval_coerce(src: ArkType, dst: ArkType, val: Value) -> Result<Value, EvalErro
             Ok(Value::SparseMLE(SparseMultilinearExtension::from_evaluations(1, &evals)))
         }
 
+        // ── ArrayOf(Field) → DensePoly (coefficients array) ──
+        (ArrayOf(inner), DensePoly) if **inner == Field => {
+            let arr = val.as_array()?;
+            let coeffs: Vec<Fr> = arr.into_iter()
+                .map(|v| v.as_field())
+                .collect::<Result<_, _>>()?;
+            Ok(Value::Polynomial(DensePolynomial::from_coefficients_vec(coeffs)))
+        }
+
+        // ── ArrayOf(Field) → DenseMLE (evaluations array, infer num_vars) ──
+        (ArrayOf(inner), DenseMLE) if **inner == Field => {
+            let arr = val.as_array()?;
+            let len = arr.len();
+            if len == 0 || (len & (len - 1)) != 0 {
+                return Err(EvalError::TypeError(format!(
+                    "coerce Array→DenseMLE: array length {} must be a power of 2", len
+                )));
+            }
+            let num_vars = (len as f64).log2() as usize;
+            let fr_vals: Vec<Fr> = arr.into_iter()
+                .map(|v| v.as_field())
+                .collect::<Result<_, _>>()?;
+            Ok(Value::MLE(DenseMultilinearExtension::from_evaluations_vec(num_vars, fr_vals)))
+        }
+
         // ── Invalid coercion ──
         _ => Err(EvalError::TypeError(format!(
             "coerce: no valid coercion from {:?} to {:?}", src, dst
@@ -727,7 +744,7 @@ fn eval_coerce(src: ArkType, dst: ArkType, val: Value) -> Result<Value, EvalErro
 /// No implicit coercion — cross-type Int↔Field requires explicit coerce.
 fn typed_add(ty_a: ArkType, ty_b: ArkType, va: Value, vb: Value) -> Result<Value, EvalError> {
     use ArkType::*;
-    match (ty_a, ty_b) {
+    match (&ty_a, &ty_b) {
         (Field, Field) => Ok(Value::Field(va.as_field()? + vb.as_field()?)),
         (Int, Int) => Ok(Value::Int(va.as_int()? + vb.as_int()?)),
         (Curve, Curve) => Ok(Value::Curve(va.as_curve()? + vb.as_curve()?)),
@@ -755,6 +772,18 @@ fn typed_add(ty_a: ArkType, ty_b: ArkType, va: Value, vb: Value) -> Result<Value
             let pa = va.as_mvpoly()?;
             let pb = vb.as_mvpoly()?;
             Ok(Value::MVPoly(&pa + &pb))
+        }
+        (ArrayOf(_), ArrayOf(_)) => {
+            let arr_a = va.as_array()?;
+            let arr_b = vb.as_array()?;
+            let len = arr_a.len().max(arr_b.len());
+            let mut result = Vec::with_capacity(len);
+            for i in 0..len {
+                let fa = if i < arr_a.len() { arr_a[i].as_field()? } else { Fr::zero() };
+                let fb = if i < arr_b.len() { arr_b[i].as_field()? } else { Fr::zero() };
+                result.push(Value::Field(fa + fb));
+            }
+            Ok(Value::Array(result))
         }
         _ => Err(EvalError::TypeError(format!(
             "add: incompatible types {:?} and {:?}", ty_a, ty_b
@@ -798,7 +827,7 @@ fn typed_neg(ty: ArkType, va: Value) -> Result<Value, EvalError> {
 /// Strictly-typed mul: both operands must match declared types.
 fn typed_mul(ty_a: ArkType, ty_b: ArkType, va: Value, vb: Value) -> Result<Value, EvalError> {
     use ArkType::*;
-    match (ty_a, ty_b) {
+    match (&ty_a, &ty_b) {
         (Field, Field) => Ok(Value::Field(va.as_field()? * vb.as_field()?)),
         (Int, Int) => Ok(Value::Int(va.as_int()? * vb.as_int()?)),
         (DensePoly, DensePoly) => {
@@ -842,99 +871,6 @@ fn typed_scale(ty: ArkType, scalar: Fr, va: Value) -> Result<Value, EvalError> {
             Ok(Value::MVPoly(MVSparsePolynomial::from_coefficients_vec(nv, scaled_terms)))
         }
         _ => Err(EvalError::TypeError(format!("scale: unsupported target type {:?}", ty))),
-    }
-}
-
-/// Evaluate polynomial constructor nodes.
-fn eval_poly_constructor(expr: &RecExpr<ArkLang>, node: &ArkLang, env: &Env) -> Result<Value, EvalError> {
-    match node {
-        ArkLang::PolyDUV(children) => {
-            let coeffs: Vec<Fr> = children
-                .iter()
-                .map(|id| eval_id(expr, *id, env)?.as_field())
-                .collect::<Result<_, _>>()?;
-            Ok(Value::Polynomial(DensePolynomial::from_coefficients_vec(coeffs)))
-        }
-
-        ArkLang::PolySUV(children) => {
-            if children.len() % 2 != 0 {
-                return Err(EvalError::TypeError(
-                    "poly:suv: expected even number of arguments (power coeff pairs)".into(),
-                ));
-            }
-            let mut terms = Vec::new();
-            for chunk in children.chunks(2) {
-                let pow = eval_id(expr, chunk[0], env)?.as_int()? as usize;
-                let coeff = eval_id(expr, chunk[1], env)?.as_field()?;
-                terms.push((pow, coeff));
-            }
-            Ok(Value::SparseUVPoly(SparseUVPolynomial::from_coefficients_vec(terms)))
-        }
-
-        ArkLang::PolyDMLE([nvars, evals]) => {
-            let n = eval_id(expr, *nvars, env)?.as_int()?;
-            let vals = eval_id(expr, *evals, env)?.as_array()?;
-            let expected_len = 1usize << (n as usize);
-            if vals.len() != expected_len {
-                return Err(EvalError::TypeError(format!(
-                    "poly:dmle: expected {} evaluations for {} variables, got {}",
-                    expected_len, n, vals.len()
-                )));
-            }
-            let fr_vals: Vec<Fr> = vals.into_iter()
-                .map(|v| v.as_field())
-                .collect::<Result<_, _>>()?;
-            Ok(Value::MLE(DenseMultilinearExtension::from_evaluations_vec(n as usize, fr_vals)))
-        }
-
-        ArkLang::PolySMLE([nvars, evals]) => {
-            let nv = eval_id(expr, *nvars, env)?.as_int()? as usize;
-            let arr = eval_id(expr, *evals, env)?.as_array()?;
-            if arr.len() % 2 != 0 {
-                return Err(EvalError::TypeError(
-                    "poly:smle: evals_array must have even length (index value pairs)".into(),
-                ));
-            }
-            let mut evals_vec = Vec::new();
-            for chunk in arr.chunks(2) {
-                let idx = chunk[0].as_int()? as usize;
-                let val = chunk[1].as_field()?;
-                evals_vec.push((idx, val));
-            }
-            Ok(Value::SparseMLE(SparseMultilinearExtension::from_evaluations(nv, &evals_vec)))
-        }
-
-        ArkLang::PolyMV([nvars, coeffs, terms]) => {
-            let n = eval_id(expr, *nvars, env)?.as_int()? as usize;
-            let coeffs_arr = eval_id(expr, *coeffs, env)?.as_array()?;
-            let terms_arr = eval_id(expr, *terms, env)?.as_array()?;
-            if coeffs_arr.len() != terms_arr.len() {
-                return Err(EvalError::TypeError(format!(
-                    "poly:mv: coefficients ({}) and terms ({}) must have same length",
-                    coeffs_arr.len(), terms_arr.len()
-                )));
-            }
-            let mut term_pairs: Vec<(Fr, SparseTerm)> = Vec::new();
-            for (c_val, t_val) in coeffs_arr.into_iter().zip(terms_arr.into_iter()) {
-                let coeff = c_val.as_field()?;
-                let t_arr = t_val.as_array()?;
-                if t_arr.len() % 2 != 0 {
-                    return Err(EvalError::TypeError(
-                        "poly:mv: each term must have even-length array [var, power, ...]".into()
-                    ));
-                }
-                let mut pairs = Vec::new();
-                for chunk in t_arr.chunks(2) {
-                    let var = chunk[0].as_int()? as usize;
-                    let pow = chunk[1].as_int()? as usize;
-                    pairs.push((var, pow));
-                }
-                term_pairs.push((coeff, SparseTerm::new(pairs)));
-            }
-            Ok(Value::MVPoly(MVSparsePolynomial::from_coefficients_vec(n, term_pairs)))
-        }
-
-        _ => unreachable!("eval_poly_constructor called with non-constructor node"),
     }
 }
 
@@ -1340,62 +1276,62 @@ mod tests {
 
     #[test]
     fn test_poly_eval() {
-        let v = eval_str("(eval DensePoly (poly:duv 1 2 3) 5)", &empty_env()).unwrap();
+        let v = eval_str("(eval DensePoly (coerce (arrayof Field) DensePoly (array 1 2 3)) 5)", &empty_env()).unwrap();
         assert_eq!(v, Value::Int(86));
     }
 
     #[test]
     fn test_poly_eval_constant() {
-        let v = eval_str("(eval DensePoly (poly:duv 42) 999)", &empty_env()).unwrap();
+        let v = eval_str("(eval DensePoly (coerce (arrayof Field) DensePoly (array 42)) 999)", &empty_env()).unwrap();
         assert_eq!(v, Value::Int(42));
     }
 
     #[test]
     fn test_poly_add() {
-        let v = eval_str("(eval DensePoly (add DensePoly DensePoly (poly:duv 1 2) (poly:duv 3 4)) 10)", &empty_env()).unwrap();
+        let v = eval_str("(eval DensePoly (add DensePoly DensePoly (coerce (arrayof Field) DensePoly (array 1 2)) (coerce (arrayof Field) DensePoly (array 3 4))) 10)", &empty_env()).unwrap();
         assert_eq!(v, Value::Int(64));
     }
 
     #[test]
     fn test_poly_mul() {
-        let v = eval_str("(eval DensePoly (mul DensePoly DensePoly (poly:duv 1 1) (poly:duv 1 1)) 3)", &empty_env()).unwrap();
+        let v = eval_str("(eval DensePoly (mul DensePoly DensePoly (coerce (arrayof Field) DensePoly (array 1 1)) (coerce (arrayof Field) DensePoly (array 1 1))) 3)", &empty_env()).unwrap();
         assert_eq!(v, Value::Int(16));
     }
 
     #[test]
     fn test_poly_sub() {
-        let v = eval_str("(eval DensePoly (add DensePoly DensePoly (poly:duv 1 2 3) (neg DensePoly (poly:duv 1 2))) 2)", &empty_env()).unwrap();
+        let v = eval_str("(eval DensePoly (add DensePoly DensePoly (coerce (arrayof Field) DensePoly (array 1 2 3)) (neg DensePoly (coerce (arrayof Field) DensePoly (array 1 2)))) 2)", &empty_env()).unwrap();
         assert_eq!(v, Value::Int(12));
     }
 
     #[test]
     fn test_poly_neg() {
-        let v = eval_str("(eval DensePoly (add DensePoly DensePoly (poly:duv 1 1) (neg DensePoly (poly:duv 1 1))) 7)", &empty_env()).unwrap();
+        let v = eval_str("(eval DensePoly (add DensePoly DensePoly (coerce (arrayof Field) DensePoly (array 1 1)) (neg DensePoly (coerce (arrayof Field) DensePoly (array 1 1)))) 7)", &empty_env()).unwrap();
         assert_eq!(v, Value::Int(0));
     }
 
     #[test]
     fn test_poly_div() {
         // pdiv now returns a Pair(quotient, remainder)
-        let v = eval_str("(eval DensePoly (fst (pdiv DensePoly (poly:duv 1 3 2) (poly:duv 1 1))) 5)", &empty_env()).unwrap();
+        let v = eval_str("(eval DensePoly (fst (div DensePoly (coerce (arrayof Field) DensePoly (array 1 3 2)) (coerce (arrayof Field) DensePoly (array 1 1)))) 5)", &empty_env()).unwrap();
         assert_eq!(v, Value::Int(11));
     }
 
     #[test]
     fn test_poly_mod() {
-        let v = eval_str("(eval DensePoly (snd (pdiv DensePoly (poly:duv 1 0 1) (poly:duv 1 1))) 999)", &empty_env()).unwrap();
+        let v = eval_str("(eval DensePoly (snd (div DensePoly (coerce (arrayof Field) DensePoly (array 1 0 1)) (coerce (arrayof Field) DensePoly (array 1 1)))) 999)", &empty_env()).unwrap();
         assert_eq!(v, Value::Int(2));
     }
 
     #[test]
     fn test_poly_deg() {
-        let v = eval_str("(deg DensePoly (poly:duv 1 2 3))", &empty_env()).unwrap();
+        let v = eval_str("(deg DensePoly (coerce (arrayof Field) DensePoly (array 1 2 3)))", &empty_env()).unwrap();
         assert_eq!(v, Value::Int(2));
     }
 
     #[test]
     fn test_poly_scale() {
-        let v = eval_str("(eval DensePoly (scale DensePoly 3 (poly:duv 1 1)) 2)", &empty_env()).unwrap();
+        let v = eval_str("(eval DensePoly (scale DensePoly 3 (coerce (arrayof Field) DensePoly (array 1 1))) 2)", &empty_env()).unwrap();
         assert_eq!(v, Value::Int(9));
     }
 
@@ -1403,23 +1339,23 @@ mod tests {
 
     #[test]
     fn test_mle_construct_and_eval() {
-        let v = eval_str("(eval DenseMLE (poly:dmle 2 (mkarray 1 2 3 4)) (mkarray 0 0))", &empty_env()).unwrap();
+        let v = eval_str("(eval DenseMLE (coerce (arrayof Field) DenseMLE (array 1 2 3 4)) (array 0 0))", &empty_env()).unwrap();
         assert_eq!(v, Value::Int(1));
 
-        let v = eval_str("(eval DenseMLE (poly:dmle 2 (mkarray 1 2 3 4)) (mkarray 1 0))", &empty_env()).unwrap();
+        let v = eval_str("(eval DenseMLE (coerce (arrayof Field) DenseMLE (array 1 2 3 4)) (array 1 0))", &empty_env()).unwrap();
         assert_eq!(v, Value::Int(2));
     }
 
     #[test]
     fn test_mle_nvars() {
-        let v = eval_str("(nvars DenseMLE (poly:dmle 3 (mkarray 0 1 2 3 4 5 6 7)))", &empty_env()).unwrap();
+        let v = eval_str("(numvars DenseMLE (coerce (arrayof Field) DenseMLE (array 0 1 2 3 4 5 6 7)))", &empty_env()).unwrap();
         assert_eq!(v, Value::Int(3));
     }
 
     #[test]
     fn test_mle_fix_variables() {
         let v = eval_str(
-            "(eval DenseMLE (fix (poly:dmle 2 (mkarray 1 2 3 4)) (mkarray 1)) (mkarray 0))",
+            "(eval DenseMLE (fix (coerce (arrayof Field) DenseMLE (array 1 2 3 4)) (array 1)) (array 0))",
             &empty_env(),
         ).unwrap();
         assert_eq!(v, Value::Int(2));
@@ -1428,7 +1364,7 @@ mod tests {
     #[test]
     fn test_mle_add() {
         let v = eval_str(
-            "(eval DenseMLE (add DenseMLE DenseMLE (poly:dmle 2 (mkarray 1 0 0 0)) (poly:dmle 2 (mkarray 0 0 0 1))) (mkarray 0 0))",
+            "(eval DenseMLE (add DenseMLE DenseMLE (coerce (arrayof Field) DenseMLE (array 1 0 0 0)) (coerce (arrayof Field) DenseMLE (array 0 0 0 1))) (array 0 0))",
             &empty_env(),
         ).unwrap();
         assert_eq!(v, Value::Int(1));
@@ -1439,7 +1375,7 @@ mod tests {
     #[test]
     fn test_mvpoly_construct_and_eval() {
         let v = eval_str(
-            "(eval MVPoly (poly:mv 2 (mkarray 5 2 3) (mkarray (mkarray) (mkarray 0 1) (mkarray 1 1))) (mkarray 2 7))",
+            "(eval MVPoly (poly (ids x y) 5 (mul Field Field 2 x) (mul Field Field 3 y)) (array 2 7))",
             &empty_env(),
         ).unwrap();
         assert_eq!(v, Value::Int(30));
@@ -1448,7 +1384,7 @@ mod tests {
     #[test]
     fn test_mvpoly_degree() {
         let v = eval_str(
-            "(deg MVPoly (poly:mv 2 (mkarray 1) (mkarray (mkarray 0 2 1 1))))",
+            "(deg MVPoly (poly (ids x y) (mul Field Field (pow Field x 2) y)))",
             &empty_env(),
         ).unwrap();
         assert_eq!(v, Value::Int(3));
@@ -1457,7 +1393,7 @@ mod tests {
     #[test]
     fn test_mvpoly_add() {
         let v = eval_str(
-            "(eval MVPoly (add MVPoly MVPoly (poly:mv 2 (mkarray 1 1) (mkarray (mkarray) (mkarray 0 1))) (poly:mv 2 (mkarray 2 1) (mkarray (mkarray) (mkarray 1 1)))) (mkarray 1 1))",
+            "(eval MVPoly (add MVPoly MVPoly (poly (ids x y) 1 x) (poly (ids x y) 2 y)) (array 1 1))",
             &empty_env(),
         ).unwrap();
         assert_eq!(v, Value::Int(5));
@@ -1467,43 +1403,43 @@ mod tests {
 
     #[test]
     fn test_array_create_and_select() {
-        let v = eval_str("(select Int (mkarray 10 20 30) 1)", &empty_env()).unwrap();
+        let v = eval_str("(get Int (array 10 20 30) 1)", &empty_env()).unwrap();
         assert_eq!(v, Value::Int(20));
     }
 
     #[test]
     fn test_array_len() {
-        let v = eval_str("(alen (mkarray 1 2 3 4 5))", &empty_env()).unwrap();
+        let v = eval_str("(length (array 1 2 3 4 5))", &empty_env()).unwrap();
         assert_eq!(v, Value::Int(5));
     }
 
     #[test]
     fn test_array_index_out_of_bounds() {
-        let r = eval_str("(select Int (mkarray 1 2) 5)", &empty_env());
+        let r = eval_str("(get Int (array 1 2) 5)", &empty_env());
         assert!(matches!(r, Err(EvalError::IndexOutOfBounds { .. })));
     }
 
     #[test]
     fn test_store_basic() {
-        let v = eval_str("(select Int (store Int (mkarray 1 2 3) 1 99) 1)", &empty_env()).unwrap();
+        let v = eval_str("(get Int (set Int (array 1 2 3) 1 99) 1)", &empty_env()).unwrap();
         assert_eq!(v, Value::Int(99));
     }
 
     #[test]
     fn test_store_preserves_other() {
-        let v = eval_str("(select Int (store Int (mkarray 1 2 3) 1 99) 0)", &empty_env()).unwrap();
+        let v = eval_str("(get Int (set Int (array 1 2 3) 1 99) 0)", &empty_env()).unwrap();
         assert_eq!(v, Value::Int(1));
     }
 
     #[test]
     fn test_store_out_of_bounds() {
-        let r = eval_str("(store Int (mkarray 1 2 3) 5 99)", &empty_env());
+        let r = eval_str("(set Int (array 1 2 3) 5 99)", &empty_env());
         assert!(matches!(r, Err(EvalError::IndexOutOfBounds { .. })));
     }
 
     #[test]
     fn test_alen_after_store() {
-        let v = eval_str("(alen (store Int (mkarray 1 2 3) 0 99))", &empty_env()).unwrap();
+        let v = eval_str("(length (set Int (array 1 2 3) 0 99))", &empty_env()).unwrap();
         assert_eq!(v, Value::Int(3));
     }
 
@@ -1513,7 +1449,7 @@ mod tests {
         let p = G1Projective::rand(&mut rng);
         let mut env = empty_env();
         env.insert("p".into(), Value::Curve(p));
-        let r = eval_str("(store Int (mkarray 1 2 3) 0 p)", &env);
+        let r = eval_str("(set Int (array 1 2 3) 0 p)", &env);
         assert!(matches!(r, Err(EvalError::TypeMismatch { .. })));
     }
 
@@ -1539,7 +1475,7 @@ mod tests {
         let mut env = empty_env();
         env.insert("x".into(), Value::Int(7));
 
-        let poly_result = eval_str("(eval DensePoly (poly:duv 5 3 2 1) x)", &env)
+        let poly_result = eval_str("(eval DensePoly (coerce (arrayof Field) DensePoly (array 5 3 2 1)) x)", &env)
             .unwrap()
             .as_field()
             .unwrap();
@@ -1557,13 +1493,13 @@ mod tests {
 
     #[test]
     fn test_sparse_uv_poly_eval() {
-        let v = eval_str("(eval SparsePoly (poly:suv 0 5 2 3) 2)", &empty_env()).unwrap();
+        let v = eval_str("(eval SparsePoly (poly (ids x) 5 (mul Field Field 3 (pow Field x 2))) 2)", &empty_env()).unwrap();
         assert_eq!(v.as_field().unwrap(), Fr::from(17u64));
     }
 
     #[test]
     fn test_sparse_uv_single_term() {
-        let v = eval_str("(eval SparsePoly (poly:suv 3 7) 2)", &empty_env()).unwrap();
+        let v = eval_str("(eval SparsePoly (poly (ids x) (mul Field Field 7 (pow Field x 3))) 2)", &empty_env()).unwrap();
         assert_eq!(v.as_field().unwrap(), Fr::from(56u64));
     }
 
@@ -1572,7 +1508,7 @@ mod tests {
     #[test]
     fn test_sparse_mle_eval() {
         let v = eval_str(
-            "(eval SparseMLE (poly:smle 2 (mkarray 0 10 3 20)) (mkarray 0 0))",
+            "(eval SparseMLE (coerce DenseMLE SparseMLE (coerce (arrayof Field) DenseMLE (array 10 0 0 20))) (array 0 0))",
             &empty_env(),
         ).unwrap();
         assert_eq!(v.as_field().unwrap(), Fr::from(10u64));
@@ -1581,7 +1517,7 @@ mod tests {
     #[test]
     fn test_sparse_mle_eval_at_one_one() {
         let v = eval_str(
-            "(eval SparseMLE (poly:smle 2 (mkarray 0 10 3 20)) (mkarray 1 1))",
+            "(eval SparseMLE (coerce DenseMLE SparseMLE (coerce (arrayof Field) DenseMLE (array 10 0 0 20))) (array 1 1))",
             &empty_env(),
         ).unwrap();
         assert_eq!(v.as_field().unwrap(), Fr::from(20u64));
@@ -1591,7 +1527,7 @@ mod tests {
 
     #[test]
     fn test_sigma_sum() {
-        let v = eval_str("(Σ i 0 3 (select Int (mkarray 10 20 30) i))", &empty_env()).unwrap();
+        let v = eval_str("(Σ i 0 3 (get Int (array 10 20 30) i))", &empty_env()).unwrap();
         assert_eq!(v, Value::Int(60));
     }
 
@@ -1605,7 +1541,7 @@ mod tests {
         env.insert("P1".into(), Value::Curve(p1));
 
         let result = eval_str(
-            "(Σ i 0 2 (scale Curve (select Int (mkarray 3 5) i) (select Curve (mkarray P0 P1) i)))",
+            "(Σ i 0 2 (scale Curve (get Int (array 3 5) i) (get Curve (array P0 P1) i)))",
             &env,
         ).unwrap().as_curve().unwrap();
 
@@ -1615,7 +1551,7 @@ mod tests {
 
     #[test]
     fn test_pi_product() {
-        let v = eval_str("(Π i 0 3 (select Int (mkarray 2 3 5) i))", &empty_env()).unwrap();
+        let v = eval_str("(Π i 0 3 (get Int (array 2 3 5) i))", &empty_env()).unwrap();
         assert_eq!(v, Value::Int(30));
     }
 
@@ -1642,14 +1578,14 @@ mod tests {
     #[test]
     fn test_densify_sparse_uv() {
         // Create sparse poly 5 + 3x^2, densify, evaluate
-        let v = eval_str("(eval DensePoly (coerce SparsePoly DensePoly (poly:suv 0 5 2 3)) 2)", &empty_env()).unwrap();
+        let v = eval_str("(eval DensePoly (coerce SparsePoly DensePoly (poly (ids x) 5 (mul Field Field 3 (pow Field x 2)))) 2)", &empty_env()).unwrap();
         assert_eq!(v.as_field().unwrap(), Fr::from(17u64));
     }
 
     #[test]
     fn test_sparsify_dense_uv() {
         // Create dense poly [5, 0, 3] (5 + 3x^2), sparsify, evaluate
-        let v = eval_str("(eval SparsePoly (coerce DensePoly SparsePoly (poly:duv 5 0 3)) 2)", &empty_env()).unwrap();
+        let v = eval_str("(eval SparsePoly (coerce DensePoly SparsePoly (coerce (arrayof Field) DensePoly (array 5 0 3))) 2)", &empty_env()).unwrap();
         assert_eq!(v.as_field().unwrap(), Fr::from(17u64));
     }
 
@@ -1657,7 +1593,7 @@ mod tests {
     fn test_as_uv_mle() {
         // 1-var MLE with evals [3, 7]: linear poly f(x) = 3 + 4x
         // Evaluate at x=2: 3 + 8 = 11
-        let v = eval_str("(eval DensePoly (coerce DenseMLE DensePoly (poly:dmle 1 (mkarray 3 7))) 2)", &empty_env()).unwrap();
+        let v = eval_str("(eval DensePoly (coerce DenseMLE DensePoly (coerce (arrayof Field) DenseMLE (array 3 7))) 2)", &empty_env()).unwrap();
         assert_eq!(v.as_field().unwrap(), Fr::from(11u64));
     }
 
@@ -1665,9 +1601,9 @@ mod tests {
     fn test_as_mle_uv() {
         // UV poly [3, 4] (3 + 4x) → MLE with 1 var
         // Eval at (0) → 3, eval at (1) → 7
-        let v0 = eval_str("(eval DenseMLE (coerce DensePoly DenseMLE (poly:duv 3 4)) (mkarray 0))", &empty_env()).unwrap();
+        let v0 = eval_str("(eval DenseMLE (coerce DensePoly DenseMLE (coerce (arrayof Field) DensePoly (array 3 4))) (array 0))", &empty_env()).unwrap();
         assert_eq!(v0.as_field().unwrap(), Fr::from(3u64));
-        let v1 = eval_str("(eval DenseMLE (coerce DensePoly DenseMLE (poly:duv 3 4)) (mkarray 1))", &empty_env()).unwrap();
+        let v1 = eval_str("(eval DenseMLE (coerce DensePoly DenseMLE (coerce (arrayof Field) DensePoly (array 3 4))) (array 1))", &empty_env()).unwrap();
         assert_eq!(v1.as_field().unwrap(), Fr::from(7u64));
     }
 
@@ -1675,11 +1611,11 @@ mod tests {
 
     #[test]
     fn test_specialize_bound() {
-        // Build: (let N (bound 2 100) (Σ i 0 N (select Int (mkarray 10 20 30) i)))
+        // Build: (let N (bound 2 100) (Σ i 0 N (get Int (array 10 20 30) i)))
         // Specialize N=3
         // Should evaluate to 10+20+30 = 60
         let expr: RecExpr<ArkLang> =
-            "(let N (bound 2 100) (Σ i 0 N (select Int (mkarray 10 20 30) i)))".parse().unwrap();
+            "(let N (bound 2 100) (Σ i 0 N (get Int (array 10 20 30) i)))".parse().unwrap();
         let specialized = specialize(&expr, "N".into(), 3);
         let result = eval(&specialized, &empty_env()).unwrap();
         assert_eq!(result.as_field().unwrap(), Fr::from(60u64));
@@ -1687,7 +1623,7 @@ mod tests {
 
     #[test]
     fn test_specialize_msm_pattern() {
-        // Parametric MSM: (let N (bound 1 10) (Σ i 0 N (scale (select s i) (select P i))))
+        // Parametric MSM: (let N (bound 1 10) (Σ i 0 N (scale (get s i) (get P i))))
         // Specialize N=2 with concrete scalars and points
         let mut rng = StdRng::seed_from_u64(42);
         let p0 = G1Projective::rand(&mut rng);
@@ -1697,7 +1633,7 @@ mod tests {
         env.insert("P".into(), Value::Array(vec![Value::Curve(p0), Value::Curve(p1)]));
 
         let expr: RecExpr<ArkLang> =
-            "(let N (bound 1 10) (Σ i 0 N (scale Curve (select Int s i) (select Curve P i))))".parse().unwrap();
+            "(let N (bound 1 10) (Σ i 0 N (scale Curve (get Int s i) (get Curve P i))))".parse().unwrap();
         let specialized = specialize(&expr, "N".into(), 2);
         let result = eval(&specialized, &env).unwrap().as_curve().unwrap();
 
@@ -1736,7 +1672,7 @@ mod tests {
     fn test_fft_known_poly() {
         // FFT of constant polynomial [5] over domain size 4
         // All evaluations should be 5
-        let v = eval_str("(fft DensePoly 4 (poly:duv 5))", &empty_env()).unwrap();
+        let v = eval_str("(fft DensePoly 4 (coerce (arrayof Field) DensePoly (array 5)))", &empty_env()).unwrap();
         let arr = v.as_array().unwrap();
         assert_eq!(arr.len(), 4);
         for elem in &arr {
@@ -1749,7 +1685,7 @@ mod tests {
         // FFT of p(x) = 1 + 2x over domain of size 4
         // Evaluations at [1, ω, ω², ω³] = [1+2·1, 1+2ω, 1+2ω², 1+2ω³]
         let env = empty_env();
-        let evals = eval_str("(fft DensePoly 4 (poly:duv 1 2))", &env).unwrap().as_array().unwrap();
+        let evals = eval_str("(fft DensePoly 4 (coerce (arrayof Field) DensePoly (array 1 2)))", &env).unwrap().as_array().unwrap();
         let domain_pts = eval_str("(domain 4)", &env).unwrap().as_array().unwrap();
         for i in 0..4 {
             let omega_i = domain_pts[i].as_field().unwrap();
@@ -1762,8 +1698,8 @@ mod tests {
     fn test_ifft_roundtrip() {
         // ifft(fft(p)) should recover p
         let env = empty_env();
-        let original = eval_str("(eval DensePoly (poly:duv 3 5 7) 42)", &env).unwrap().as_field().unwrap();
-        let recovered = eval_str("(eval DensePoly (ifft Array 4 (fft DensePoly 4 (poly:duv 3 5 7))) 42)", &env).unwrap().as_field().unwrap();
+        let original = eval_str("(eval DensePoly (coerce (arrayof Field) DensePoly (array 3 5 7)) 42)", &env).unwrap().as_field().unwrap();
+        let recovered = eval_str("(eval DensePoly (ifft Array 4 (fft DensePoly 4 (coerce (arrayof Field) DensePoly (array 3 5 7)))) 42)", &env).unwrap().as_field().unwrap();
         assert_eq!(original, recovered);
     }
 
@@ -1771,8 +1707,8 @@ mod tests {
     fn test_fft_from_array() {
         // FFT should accept Array[Field] as raw coefficients
         let env = empty_env();
-        let from_poly = eval_str("(fft DensePoly 4 (poly:duv 1 2 3))", &env).unwrap();
-        let from_arr = eval_str("(fft Array 4 (mkarray 1 2 3))", &env).unwrap();
+        let from_poly = eval_str("(fft DensePoly 4 (coerce (arrayof Field) DensePoly (array 1 2 3)))", &env).unwrap();
+        let from_arr = eval_str("(fft Array 4 (array 1 2 3))", &env).unwrap();
         assert_eq!(from_poly, from_arr);
     }
 
@@ -1780,8 +1716,8 @@ mod tests {
     fn test_fft_from_sparse() {
         // FFT should accept SparseUVPoly
         let env = empty_env();
-        let from_dense = eval_str("(fft DensePoly 4 (poly:duv 5 0 3))", &env).unwrap();
-        let from_sparse = eval_str("(fft SparsePoly 4 (poly:suv 0 5 2 3))", &env).unwrap();
+        let from_dense = eval_str("(fft DensePoly 4 (coerce (arrayof Field) DensePoly (array 5 0 3)))", &env).unwrap();
+        let from_sparse = eval_str("(fft SparsePoly 4 (poly (ids x) 5 (mul Field Field 3 (pow Field x 2))))", &env).unwrap();
         assert_eq!(from_dense, from_sparse);
     }
 
@@ -1789,13 +1725,13 @@ mod tests {
     fn test_fft_eval_matches_point_eval() {
         // FFT evaluations should match point-by-point eval at domain elements
         let env = empty_env();
-        let evals = eval_str("(fft DensePoly 8 (poly:duv 1 2 3 4))", &env).unwrap().as_array().unwrap();
+        let evals = eval_str("(fft DensePoly 8 (coerce (arrayof Field) DensePoly (array 1 2 3 4)))", &env).unwrap().as_array().unwrap();
         let domain_pts = eval_str("(domain 8)", &env).unwrap().as_array().unwrap();
         for i in 0..8 {
             let pt = domain_pts[i].as_field().unwrap();
             let mut env2 = empty_env();
             env2.insert("x".into(), Value::Field(pt));
-            let point_eval = eval_str("(eval DensePoly (poly:duv 1 2 3 4) x)", &env2).unwrap().as_field().unwrap();
+            let point_eval = eval_str("(eval DensePoly (coerce (arrayof Field) DensePoly (array 1 2 3 4)) x)", &env2).unwrap().as_field().unwrap();
             assert_eq!(evals[i].as_field().unwrap(), point_eval);
         }
     }
@@ -1816,7 +1752,7 @@ mod tests {
         // (poly (ids x) (mul Field Field 3 (pow Field x 2)) (mul Field Field 5 x) 7) should match (poly:suv 0 7 1 5 2 3)
         let env = empty_env();
         let from_sym = eval_str("(eval SparsePoly (poly (ids x) (mul Field Field 3 (pow Field x 2)) (mul Field Field 5 x) 7) 10)", &env).unwrap();
-        let from_suv = eval_str("(eval SparsePoly (poly:suv 0 7 1 5 2 3) 10)", &env).unwrap();
+        let from_suv = eval_str("(eval SparsePoly (poly (ids x) 7 (mul Field Field 5 x) (mul Field Field 3 (pow Field x 2))) 10)", &env).unwrap();
         assert_eq!(from_sym.as_field().unwrap(), from_suv.as_field().unwrap());
     }
 
@@ -1851,7 +1787,7 @@ mod tests {
         // (poly (ids x y) (pow Field x 2) (pow Field y 3) 4) = x² + y³ + 4
         let env = empty_env();
         let v = eval_str(
-            "(eval MVPoly (poly (ids x y) (pow Field x 2) (pow Field y 3) 4) (mkarray 3 2))",
+            "(eval MVPoly (poly (ids x y) (pow Field x 2) (pow Field y 3) 4) (array 3 2))",
             &env,
         ).unwrap();
         // 9 + 8 + 4 = 21
@@ -1863,7 +1799,7 @@ mod tests {
         // (poly (ids x y) (mul Field Field 2 (mul Field Field x y))) = 2xy
         let env = empty_env();
         let v = eval_str(
-            "(eval MVPoly (poly (ids x y) (mul Field Field 2 (mul Field Field x y))) (mkarray 3 5))",
+            "(eval MVPoly (poly (ids x y) (mul Field Field 2 (mul Field Field x y))) (array 3 5))",
             &env,
         ).unwrap();
         // 2*3*5 = 30
@@ -1912,9 +1848,9 @@ mod tests {
     fn test_pdiv_returns_pair() {
         let env = empty_env();
         // (2x² + 3x + 1) / (x + 1) = quotient (2x + 1), remainder 0
-        let q = eval_str("(eval DensePoly (fst (pdiv DensePoly (poly:duv 1 3 2) (poly:duv 1 1))) 5)", &env).unwrap();
+        let q = eval_str("(eval DensePoly (fst (div DensePoly (coerce (arrayof Field) DensePoly (array 1 3 2)) (coerce (arrayof Field) DensePoly (array 1 1)))) 5)", &env).unwrap();
         assert_eq!(q.as_field().unwrap(), Fr::from(11u64));
-        let r = eval_str("(eval DensePoly (snd (pdiv DensePoly (poly:duv 1 3 2) (poly:duv 1 1))) 5)", &env).unwrap();
+        let r = eval_str("(eval DensePoly (snd (div DensePoly (coerce (arrayof Field) DensePoly (array 1 3 2)) (coerce (arrayof Field) DensePoly (array 1 1)))) 5)", &env).unwrap();
         assert_eq!(r.as_field().unwrap(), Fr::from(0u64));
     }
 
@@ -1923,10 +1859,10 @@ mod tests {
         // a = q*b + r: (x² + 1) / (x + 1) → q = x - 1, r = 2
         // Verify: q*b + r = a at x = 5
         let env = empty_env();
-        let a_val = eval_str("(eval DensePoly (poly:duv 1 0 1) 5)", &env).unwrap().as_field().unwrap();
-        let q_val = eval_str("(eval DensePoly (fst (pdiv DensePoly (poly:duv 1 0 1) (poly:duv 1 1))) 5)", &env).unwrap().as_field().unwrap();
-        let b_val = eval_str("(eval DensePoly (poly:duv 1 1) 5)", &env).unwrap().as_field().unwrap();
-        let r_val = eval_str("(eval DensePoly (snd (pdiv DensePoly (poly:duv 1 0 1) (poly:duv 1 1))) 5)", &env).unwrap().as_field().unwrap();
+        let a_val = eval_str("(eval DensePoly (coerce (arrayof Field) DensePoly (array 1 0 1)) 5)", &env).unwrap().as_field().unwrap();
+        let q_val = eval_str("(eval DensePoly (fst (div DensePoly (coerce (arrayof Field) DensePoly (array 1 0 1)) (coerce (arrayof Field) DensePoly (array 1 1)))) 5)", &env).unwrap().as_field().unwrap();
+        let b_val = eval_str("(eval DensePoly (coerce (arrayof Field) DensePoly (array 1 1)) 5)", &env).unwrap().as_field().unwrap();
+        let r_val = eval_str("(eval DensePoly (snd (div DensePoly (coerce (arrayof Field) DensePoly (array 1 0 1)) (coerce (arrayof Field) DensePoly (array 1 1)))) 5)", &env).unwrap().as_field().unwrap();
         assert_eq!(a_val, q_val * b_val + r_val);
     }
 
@@ -1935,7 +1871,7 @@ mod tests {
     #[test]
     fn test_aadd_basic() {
         let env = empty_env();
-        let v = eval_str("(aadd Field (mkarray 1 2 3) (mkarray 4 5 6))", &env).unwrap().as_array().unwrap();
+        let v = eval_str("(add (arrayof Field) (arrayof Field) (array 1 2 3) (array 4 5 6))", &env).unwrap().as_array().unwrap();
         assert_eq!(v.len(), 3);
         assert_eq!(v[0].as_field().unwrap(), Fr::from(5u64));
         assert_eq!(v[1].as_field().unwrap(), Fr::from(7u64));
@@ -1945,7 +1881,7 @@ mod tests {
     #[test]
     fn test_aadd_different_lengths() {
         let env = empty_env();
-        let v = eval_str("(aadd Field (mkarray 1 2) (mkarray 10 20 30))", &env).unwrap().as_array().unwrap();
+        let v = eval_str("(add (arrayof Field) (arrayof Field) (array 1 2) (array 10 20 30))", &env).unwrap().as_array().unwrap();
         assert_eq!(v.len(), 3);
         assert_eq!(v[0].as_field().unwrap(), Fr::from(11u64));
         assert_eq!(v[1].as_field().unwrap(), Fr::from(22u64));
@@ -1955,7 +1891,7 @@ mod tests {
     #[test]
     fn test_aadd_empty() {
         let env = empty_env();
-        let v = eval_str("(aadd Field (mkarray) (mkarray 1 2))", &env).unwrap().as_array().unwrap();
+        let v = eval_str("(add (arrayof Field) (arrayof Field) (array) (array 1 2))", &env).unwrap().as_array().unwrap();
         assert_eq!(v.len(), 2);
         assert_eq!(v[0].as_field().unwrap(), Fr::from(1u64));
     }
@@ -2082,7 +2018,7 @@ mod tests {
     fn test_coerce_sparse_to_dense_poly() {
         let env = empty_env();
         // sparse poly 5 + 3x^2
-        let v = eval_str("(coerce SparsePoly DensePoly (poly:suv 0 5 2 3))", &env).unwrap();
+        let v = eval_str("(coerce SparsePoly DensePoly (poly (ids x) 5 (mul Field Field 3 (pow Field x 2))))", &env).unwrap();
         let p = v.as_polynomial().unwrap();
         assert_eq!(p.evaluate(&Fr::from(2u64)), Fr::from(17u64)); // 5 + 3*4
     }
@@ -2090,7 +2026,7 @@ mod tests {
     #[test]
     fn test_coerce_dense_to_sparse_poly() {
         let env = empty_env();
-        let v = eval_str("(coerce DensePoly SparsePoly (poly:duv 5 0 3))", &env).unwrap();
+        let v = eval_str("(coerce DensePoly SparsePoly (coerce (arrayof Field) DensePoly (array 5 0 3)))", &env).unwrap();
         let p = v.as_sparse_uv_poly().unwrap();
         assert_eq!(Polynomial::evaluate(&p, &Fr::from(2u64)), Fr::from(17u64)); // 5 + 3*4
     }
@@ -2099,7 +2035,7 @@ mod tests {
     fn test_coerce_dense_mle_to_dense_poly() {
         let env = empty_env();
         // 1-var MLE with evals [3, 7] → linear poly c0=3, c1=4 → 3+4x
-        let v = eval_str("(coerce DenseMLE DensePoly (poly:dmle 1 (mkarray 3 7)))", &env).unwrap();
+        let v = eval_str("(coerce DenseMLE DensePoly (coerce (arrayof Field) DenseMLE (array 3 7)))", &env).unwrap();
         let p = v.as_polynomial().unwrap();
         assert_eq!(p.evaluate(&Fr::from(0u64)), Fr::from(3u64));
         assert_eq!(p.evaluate(&Fr::from(1u64)), Fr::from(7u64));
@@ -2108,7 +2044,7 @@ mod tests {
     #[test]
     fn test_coerce_dense_poly_to_dense_mle() {
         let env = empty_env();
-        let v = eval_str("(coerce DensePoly DenseMLE (poly:duv 3 4))", &env).unwrap();
+        let v = eval_str("(coerce DensePoly DenseMLE (coerce (arrayof Field) DensePoly (array 3 4)))", &env).unwrap();
         let m = v.as_mle().unwrap();
         assert_eq!(m.evaluate(&vec![Fr::from(0u64)]), Fr::from(3u64));
         assert_eq!(m.evaluate(&vec![Fr::from(1u64)]), Fr::from(7u64));
@@ -2118,7 +2054,7 @@ mod tests {
     fn test_coerce_sparse_mle_to_dense_mle() {
         let env = empty_env();
         // 2-var sparse MLE: index 0→3, index 3→7
-        let v = eval_str("(coerce SparseMLE DenseMLE (poly:smle 2 (mkarray 0 3 3 7)))", &env).unwrap();
+        let v = eval_str("(coerce SparseMLE DenseMLE (coerce DenseMLE SparseMLE (coerce (arrayof Field) DenseMLE (array 3 0 0 7))))", &env).unwrap();
         let m = v.as_mle().unwrap();
         assert_eq!(m.num_vars(), 2);
     }
@@ -2126,7 +2062,7 @@ mod tests {
     #[test]
     fn test_coerce_dense_mle_to_sparse_mle() {
         let env = empty_env();
-        let v = eval_str("(coerce DenseMLE SparseMLE (poly:dmle 1 (mkarray 0 5)))", &env).unwrap();
+        let v = eval_str("(coerce DenseMLE SparseMLE (coerce (arrayof Field) DenseMLE (array 0 5)))", &env).unwrap();
         let m = v.as_sparse_mle().unwrap();
         assert_eq!(m.num_vars(), 1);
         assert_eq!(m.evaluate(&vec![Fr::from(1u64)]), Fr::from(5u64));
@@ -2136,7 +2072,7 @@ mod tests {
     fn test_coerce_sparse_mle_to_sparse_poly() {
         let env = empty_env();
         // 1-var sparse MLE: index 0→3, index 1→7 → linear poly 3+4x
-        let v = eval_str("(coerce SparseMLE SparsePoly (poly:smle 1 (mkarray 0 3 1 7)))", &env).unwrap();
+        let v = eval_str("(coerce SparseMLE SparsePoly (coerce DenseMLE SparseMLE (coerce (arrayof Field) DenseMLE (array 3 7))))", &env).unwrap();
         let p = v.as_sparse_uv_poly().unwrap();
         assert_eq!(Polynomial::evaluate(&p, &Fr::from(0u64)), Fr::from(3u64));
         assert_eq!(Polynomial::evaluate(&p, &Fr::from(1u64)), Fr::from(7u64));
@@ -2145,7 +2081,7 @@ mod tests {
     #[test]
     fn test_coerce_sparse_poly_to_sparse_mle() {
         let env = empty_env();
-        let v = eval_str("(coerce SparsePoly SparseMLE (poly:suv 0 3 1 4))", &env).unwrap();
+        let v = eval_str("(coerce SparsePoly SparseMLE (poly (ids x) 3 (mul Field Field 4 x)))", &env).unwrap();
         let m = v.as_sparse_mle().unwrap();
         assert_eq!(m.num_vars(), 1);
         assert_eq!(m.evaluate(&vec![Fr::from(0u64)]), Fr::from(3u64));
@@ -2179,13 +2115,13 @@ mod tests {
     #[test]
     fn test_validate_type_helper() {
         let v = Value::Field(Fr::from(42u64));
-        assert!(validate_type(&v, ArkType::Field).is_ok());
-        assert!(validate_type(&v, ArkType::Int).is_err());
-        assert!(validate_type(&v, ArkType::Curve).is_err());
+        assert!(validate_type(&v, &ArkType::Field).is_ok());
+        assert!(validate_type(&v, &ArkType::Int).is_err());
+        assert!(validate_type(&v, &ArkType::Curve).is_err());
 
         let vi = Value::Int(7);
-        assert!(validate_type(&vi, ArkType::Int).is_ok());
-        assert!(validate_type(&vi, ArkType::Field).is_ok()); // Int auto-coerces to Field
+        assert!(validate_type(&vi, &ArkType::Int).is_ok());
+        assert!(validate_type(&vi, &ArkType::Field).is_ok()); // Int auto-coerces to Field
     }
 
     // ═══════════════════════════════════════════════
@@ -2225,7 +2161,7 @@ mod tests {
     fn test_add_dense_poly() {
         let env = empty_env();
         // (1 + 2x) + (3 + 4x) = (4 + 6x)
-        let v = eval_str("(add DensePoly DensePoly (poly:duv 1 2) (poly:duv 3 4))", &env).unwrap();
+        let v = eval_str("(add DensePoly DensePoly (coerce (arrayof Field) DensePoly (array 1 2)) (coerce (arrayof Field) DensePoly (array 3 4)))", &env).unwrap();
         let p = v.as_polynomial().unwrap();
         assert_eq!(p.evaluate(&Fr::from(0u64)), Fr::from(4u64));
         assert_eq!(p.evaluate(&Fr::from(1u64)), Fr::from(10u64));
@@ -2234,7 +2170,7 @@ mod tests {
     #[test]
     fn test_add_sparse_poly() {
         let env = empty_env();
-        let v = eval_str("(add SparsePoly SparsePoly (poly:suv 0 5) (poly:suv 0 3))", &env).unwrap();
+        let v = eval_str("(add SparsePoly SparsePoly (poly (ids x) 5) (poly (ids x) 3))", &env).unwrap();
         let p = v.as_sparse_uv_poly().unwrap();
         assert_eq!(Polynomial::evaluate(&p, &Fr::from(0u64)), Fr::from(8u64));
     }
@@ -2243,7 +2179,7 @@ mod tests {
     fn test_add_dense_mle() {
         let env = empty_env();
         // 1-var MLEs: [1,3] + [2,4] = [3,7]
-        let v = eval_str("(add DenseMLE DenseMLE (poly:dmle 1 (mkarray 1 3)) (poly:dmle 1 (mkarray 2 4)))", &env).unwrap();
+        let v = eval_str("(add DenseMLE DenseMLE (coerce (arrayof Field) DenseMLE (array 1 3)) (coerce (arrayof Field) DenseMLE (array 2 4)))", &env).unwrap();
         let m = v.as_mle().unwrap();
         assert_eq!(m.evaluate(&vec![Fr::from(0u64)]), Fr::from(3u64));
         assert_eq!(m.evaluate(&vec![Fr::from(1u64)]), Fr::from(7u64));
@@ -2269,7 +2205,7 @@ mod tests {
     fn test_add_with_coerced_polys() {
         let env = empty_env();
         // Add a polynomial + a coerced constant
-        let v = eval_str("(add DensePoly DensePoly (poly:duv 1 2) (coerce Field DensePoly (coerce Int Field 5)))", &env).unwrap();
+        let v = eval_str("(add DensePoly DensePoly (coerce (arrayof Field) DensePoly (array 1 2)) (coerce Field DensePoly (coerce Int Field 5)))", &env).unwrap();
         let p = v.as_polynomial().unwrap();
         // (1 + 2x) + 5 = (6 + 2x)
         assert_eq!(p.evaluate(&Fr::from(0u64)), Fr::from(6u64));
@@ -2290,7 +2226,7 @@ mod tests {
     #[test]
     fn test_neg_dense_poly() {
         let env = empty_env();
-        let v = eval_str("(neg DensePoly (poly:duv 1 2))", &env).unwrap();
+        let v = eval_str("(neg DensePoly (coerce (arrayof Field) DensePoly (array 1 2)))", &env).unwrap();
         let p = v.as_polynomial().unwrap();
         assert_eq!(p.evaluate(&Fr::from(0u64)), -Fr::from(1u64));
         assert_eq!(p.evaluate(&Fr::from(1u64)), -Fr::from(3u64));
@@ -2314,7 +2250,7 @@ mod tests {
     #[test]
     fn test_mul_dense_poly() {
         let env = empty_env();
-        let v = eval_str("(mul DensePoly DensePoly (poly:duv 1 1) (poly:duv 1 1))", &env).unwrap();
+        let v = eval_str("(mul DensePoly DensePoly (coerce (arrayof Field) DensePoly (array 1 1)) (coerce (arrayof Field) DensePoly (array 1 1)))", &env).unwrap();
         let p = v.as_polynomial().unwrap();
         assert_eq!(p.evaluate(&Fr::from(2u64)), Fr::from(9u64));
     }
@@ -2342,7 +2278,7 @@ mod tests {
     #[test]
     fn test_inv_non_field() {
         let env = empty_env();
-        assert!(eval_str("(inv DensePoly (poly:duv 1 2))", &env).is_err());
+        assert!(eval_str("(inv DensePoly (coerce (arrayof Field) DensePoly (array 1 2)))", &env).is_err());
     }
 
     #[test]
@@ -2362,7 +2298,7 @@ mod tests {
     #[test]
     fn test_scale_dense_poly() {
         let env = empty_env();
-        let v = eval_str("(scale DensePoly (coerce Int Field 3) (poly:duv 1 2))", &env).unwrap();
+        let v = eval_str("(scale DensePoly (coerce Int Field 3) (coerce (arrayof Field) DensePoly (array 1 2)))", &env).unwrap();
         let p = v.as_polynomial().unwrap();
         assert_eq!(p.evaluate(&Fr::from(1u64)), Fr::from(9u64));
     }
@@ -2393,7 +2329,7 @@ mod tests {
     #[test]
     fn test_pow_non_field() {
         let env = empty_env();
-        assert!(eval_str("(pow DensePoly (poly:duv 1 2) 3)", &env).is_err());
+        assert!(eval_str("(pow DensePoly (coerce (arrayof Field) DensePoly (array 1 2)) 3)", &env).is_err());
     }
 
     // ═══════════════════════════════════════════════
@@ -2405,7 +2341,7 @@ mod tests {
     fn test_eval_dense_poly() {
         let env = empty_env();
         // p(x) = 1 + 2x, evaluate at x=3 → 1 + 6 = 7
-        let v = eval_str("(eval DensePoly (poly:duv 1 2) (coerce Int Field 3))", &env).unwrap();
+        let v = eval_str("(eval DensePoly (coerce (arrayof Field) DensePoly (array 1 2)) (coerce Int Field 3))", &env).unwrap();
         assert_eq!(v, Value::Field(fr(7)));
     }
 
@@ -2413,7 +2349,7 @@ mod tests {
     fn test_eval_sparse_poly() {
         let env = empty_env();
         // p(x) = 5x^2, evaluate at x=2 → 20
-        let v = eval_str("(eval SparsePoly (poly:suv 2 5) (coerce Int Field 2))", &env).unwrap();
+        let v = eval_str("(eval SparsePoly (poly (ids x) (mul Field Field 5 (pow Field x 2))) (coerce Int Field 2))", &env).unwrap();
         assert_eq!(v, Value::Field(fr(20)));
     }
 
@@ -2421,14 +2357,14 @@ mod tests {
     fn test_eval_dense_mle() {
         let env = empty_env();
         // 1-var MLE [3, 7], evaluate at [0] → 3
-        let v = eval_str("(eval DenseMLE (poly:dmle 1 (mkarray 3 7)) (mkarray (coerce Int Field 0)))", &env).unwrap();
+        let v = eval_str("(eval DenseMLE (coerce (arrayof Field) DenseMLE (array 3 7)) (array (coerce Int Field 0)))", &env).unwrap();
         assert_eq!(v, Value::Field(fr(3)));
     }
 
     #[test]
     fn test_eval_type_mismatch() {
         let env = empty_env();
-        assert!(eval_str("(eval Field (poly:duv 1 2) (coerce Int Field 3))", &env).is_err());
+        assert!(eval_str("(eval Field (coerce (arrayof Field) DensePoly (array 1 2)) (coerce Int Field 3))", &env).is_err());
     }
 
     // ── Deg ──
@@ -2436,14 +2372,14 @@ mod tests {
     fn test_deg_dense_poly() {
         let env = empty_env();
         // p(x) = 1 + 2x + 3x^2 → degree 2
-        let v = eval_str("(deg DensePoly (poly:duv 1 2 3))", &env).unwrap();
+        let v = eval_str("(deg DensePoly (coerce (arrayof Field) DensePoly (array 1 2 3)))", &env).unwrap();
         assert_eq!(v, Value::Int(2));
     }
 
     #[test]
     fn test_deg_sparse_poly() {
         let env = empty_env();
-        let v = eval_str("(deg SparsePoly (poly:suv 3 1))", &env).unwrap();
+        let v = eval_str("(deg SparsePoly (poly (ids x) (pow Field x 3)))", &env).unwrap();
         assert_eq!(v, Value::Int(3));
     }
 
@@ -2458,14 +2394,14 @@ mod tests {
     fn test_nvars_mle() {
         let env = empty_env();
         // 2-var MLE [1,2,3,4]
-        let v = eval_str("(nvars DenseMLE (poly:dmle 2 (mkarray 1 2 3 4)))", &env).unwrap();
+        let v = eval_str("(numvars DenseMLE (coerce (arrayof Field) DenseMLE (array 1 2 3 4)))", &env).unwrap();
         assert_eq!(v, Value::Int(2));
     }
 
     #[test]
     fn test_nvars_uv_poly() {
         let env = empty_env();
-        let v = eval_str("(nvars DensePoly (poly:duv 1 2))", &env).unwrap();
+        let v = eval_str("(numvars DensePoly (coerce (arrayof Field) DensePoly (array 1 2)))", &env).unwrap();
         assert_eq!(v, Value::Int(1));
     }
 
@@ -2474,7 +2410,7 @@ mod tests {
     fn test_tpdiv() {
         let env = empty_env();
         // (x^2 + 2x + 1) / (x + 1) = (x + 1, 0)
-        let v = eval_str("(pdiv DensePoly (poly:duv 1 2 1) (poly:duv 1 1))", &env).unwrap();
+        let v = eval_str("(div DensePoly (coerce (arrayof Field) DensePoly (array 1 2 1)) (coerce (arrayof Field) DensePoly (array 1 1)))", &env).unwrap();
         match v {
             Value::Pair(q, r) => {
                 // quotient = x + 1 → coeffs [1, 1]
@@ -2493,7 +2429,7 @@ mod tests {
     #[test]
     fn test_pdiv_type_mismatch() {
         let env = empty_env();
-        assert!(eval_str("(pdiv SparsePoly (poly:suv 0 1) (poly:suv 0 1))", &env).is_err());
+        assert!(eval_str("(div SparsePoly (poly (ids x) 1) (poly (ids x) 1))", &env).is_err());
     }
 
     // ── Fft / Ifft ──
@@ -2501,7 +2437,7 @@ mod tests {
     fn test_fft_dense_poly() {
         let env = empty_env();
         // FFT of constant poly [5] over domain size 4 → [5, 5, 5, 5]
-        let v = eval_str("(fft DensePoly 4 (poly:duv 5))", &env).unwrap();
+        let v = eval_str("(fft DensePoly 4 (coerce (arrayof Field) DensePoly (array 5)))", &env).unwrap();
         let arr = v.as_array().unwrap();
         assert_eq!(arr.len(), 4);
         for el in &arr {
@@ -2513,7 +2449,7 @@ mod tests {
     fn test_ifft_array() {
         let env = empty_env();
         // IFFT of constant evaluations [5,5,5,5] → constant poly [5]
-        let v = eval_str("(ifft Array 4 (mkarray (coerce Int Field 5) (coerce Int Field 5) (coerce Int Field 5) (coerce Int Field 5)))", &env).unwrap();
+        let v = eval_str("(ifft Array 4 (array (coerce Int Field 5) (coerce Int Field 5) (coerce Int Field 5) (coerce Int Field 5)))", &env).unwrap();
         let p = v.as_polynomial().unwrap();
         assert_eq!(p.coeffs.len(), 1);
         assert_eq!(p.coeffs[0], fr(5));
@@ -2523,7 +2459,7 @@ mod tests {
     fn test_fft_tifft_roundtrip() {
         let env = empty_env();
         // FFT then IFFT should recover the original polynomial
-        let v = eval_str("(ifft Array 4 (fft DensePoly 4 (poly:duv 1 2 3)))", &env).unwrap();
+        let v = eval_str("(ifft Array 4 (fft DensePoly 4 (coerce (arrayof Field) DensePoly (array 1 2 3))))", &env).unwrap();
         let p = v.as_polynomial().unwrap();
         assert_eq!(p.coeffs[0], fr(1));
         assert_eq!(p.coeffs[1], fr(2));
@@ -2534,20 +2470,20 @@ mod tests {
     #[test]
     fn test_tselect() {
         let env = empty_env();
-        let v = eval_str("(select Field (mkarray (coerce Int Field 10) (coerce Int Field 20) (coerce Int Field 30)) 1)", &env).unwrap();
+        let v = eval_str("(get Field (array (coerce Int Field 10) (coerce Int Field 20) (coerce Int Field 30)) 1)", &env).unwrap();
         assert_eq!(v, Value::Field(fr(20)));
     }
 
     #[test]
     fn test_select_out_of_bounds() {
         let env = empty_env();
-        assert!(eval_str("(select Field (mkarray (coerce Int Field 1)) 5)", &env).is_err());
+        assert!(eval_str("(get Field (array (coerce Int Field 1)) 5)", &env).is_err());
     }
 
     #[test]
     fn test_tstore() {
         let env = empty_env();
-        let v = eval_str("(store Field (mkarray (coerce Int Field 10) (coerce Int Field 20)) 0 (coerce Int Field 99))", &env).unwrap();
+        let v = eval_str("(set Field (array (coerce Int Field 10) (coerce Int Field 20)) 0 (coerce Int Field 99))", &env).unwrap();
         let arr = v.as_array().unwrap();
         assert_eq!(arr[0], Value::Field(fr(99)));
         assert_eq!(arr[1], Value::Field(fr(20)));
@@ -2557,7 +2493,7 @@ mod tests {
     #[test]
     fn test_taadd() {
         let env = empty_env();
-        let v = eval_str("(aadd Field (mkarray (coerce Int Field 1) (coerce Int Field 2)) (mkarray (coerce Int Field 10) (coerce Int Field 20)))", &env).unwrap();
+        let v = eval_str("(add (arrayof Field) (arrayof Field) (array (coerce Int Field 1) (coerce Int Field 2)) (array (coerce Int Field 10) (coerce Int Field 20)))", &env).unwrap();
         let arr = v.as_array().unwrap();
         assert_eq!(arr[0], Value::Field(fr(11)));
         assert_eq!(arr[1], Value::Field(fr(22)));
@@ -2582,6 +2518,6 @@ mod tests {
     fn test_eq_type_mismatch() {
         let env = empty_env();
         // Passing a DensePoly when tag says Field
-        assert!(eval_str("(eq Field (poly:duv 1 2) (coerce Int Field 3))", &env).is_err());
+        assert!(eval_str("(eq Field (coerce (arrayof Field) DensePoly (array 1 2)) (coerce Int Field 3))", &env).is_err());
     }
 }

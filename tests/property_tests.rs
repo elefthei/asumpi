@@ -220,7 +220,7 @@ proptest! {
 
         // Σ i=0..2 scale(s_i, P_i) == a*P + b*Q
         let sigma_r = eval_str(
-            "(Σ i 0 2 (scale Curve (select Field (mkarray a b) i) (select Curve (mkarray p q) i)))",
+            "(Σ i 0 2 (scale Curve (get Field (array a b) i) (get Curve (array p q) i)))",
             &env,
         ).as_curve().unwrap();
         let manual_r = eval_str("(add Curve Curve (scale Curve a p) (scale Curve b q))", &env).as_curve().unwrap();
@@ -243,7 +243,7 @@ proptest! {
         );
         let env = env_with_fields(&[("c0", fc0), ("c1", fc1), ("c2", fc2), ("x", fx)]);
 
-        let poly_r = eval_str("(eval DensePoly (poly:duv c0 c1 c2) x)", &env).as_field().unwrap();
+        let poly_r = eval_str("(eval DensePoly (coerce (arrayof Field) DensePoly (array c0 c1 c2)) x)", &env).as_field().unwrap();
         let horner_r = eval_str("(add Field Field c0 (mul Field Field x (add Field Field c1 (mul Field Field x c2))))", &env).as_field().unwrap();
         prop_assert_eq!(poly_r, horner_r);
     }
@@ -260,8 +260,8 @@ proptest! {
             ("x", fr_from_u64(x_val)),
         ]);
 
-        let r1 = eval_str("(eval DensePoly (add DensePoly DensePoly (poly:duv a0 a1) (poly:duv b0 b1)) x)", &env).as_field().unwrap();
-        let r2 = eval_str("(eval DensePoly (add DensePoly DensePoly (poly:duv b0 b1) (poly:duv a0 a1)) x)", &env).as_field().unwrap();
+        let r1 = eval_str("(eval DensePoly (add DensePoly DensePoly (coerce (arrayof Field) DensePoly (array a0 a1)) (coerce (arrayof Field) DensePoly (array b0 b1))) x)", &env).as_field().unwrap();
+        let r2 = eval_str("(eval DensePoly (add DensePoly DensePoly (coerce (arrayof Field) DensePoly (array b0 b1)) (coerce (arrayof Field) DensePoly (array a0 a1))) x)", &env).as_field().unwrap();
         prop_assert_eq!(r1, r2);
     }
 
@@ -277,8 +277,8 @@ proptest! {
             ("x", fr_from_u64(x_val)),
         ]);
 
-        let r1 = eval_str("(eval DensePoly (mul DensePoly DensePoly (poly:duv a0 a1) (poly:duv b0 b1)) x)", &env).as_field().unwrap();
-        let r2 = eval_str("(eval DensePoly (mul DensePoly DensePoly (poly:duv b0 b1) (poly:duv a0 a1)) x)", &env).as_field().unwrap();
+        let r1 = eval_str("(eval DensePoly (mul DensePoly DensePoly (coerce (arrayof Field) DensePoly (array a0 a1)) (coerce (arrayof Field) DensePoly (array b0 b1))) x)", &env).as_field().unwrap();
+        let r2 = eval_str("(eval DensePoly (mul DensePoly DensePoly (coerce (arrayof Field) DensePoly (array b0 b1)) (coerce (arrayof Field) DensePoly (array a0 a1))) x)", &env).as_field().unwrap();
         prop_assert_eq!(r1, r2);
     }
 
@@ -288,7 +288,7 @@ proptest! {
             ("c0", fr_from_u64(c0)), ("c1", fr_from_u64(c1)), ("c2", fr_from_u64(c2)),
         ]);
 
-        let r = eval_str("(eval DensePoly (poly:duv c0 c1 c2) 0)", &env).as_field().unwrap();
+        let r = eval_str("(eval DensePoly (coerce (arrayof Field) DensePoly (array c0 c1 c2)) 0)", &env).as_field().unwrap();
         prop_assert_eq!(r, fr_from_u64(c0));
     }
 }
@@ -307,7 +307,7 @@ proptest! {
             ("a", fr_from_u64(a_val)), ("b", fr_from_u64(b_val)),
             ("c", fr_from_u64(c_val)), ("v", fr_from_u64(v_val)),
         ]);
-        let expr = format!("(select Field (store Field (mkarray a b c) {idx} v) {idx})");
+        let expr = format!("(get Field (set Field (array a b c) {idx} v) {idx})");
         let r = eval_str(&expr, &env).as_field().unwrap();
         prop_assert_eq!(r, fr_from_u64(v_val));
     }
@@ -322,8 +322,8 @@ proptest! {
             ("c", fr_from_u64(c_val)), ("v1", fr_from_u64(v1_val)), ("v2", fr_from_u64(v2_val)),
         ]);
         for i in 0..3u64 {
-            let lhs = format!("(select Field (store Field (store Field (mkarray a b c) {idx} v1) {idx} v2) {i})");
-            let rhs = format!("(select Field (store Field (mkarray a b c) {idx} v2) {i})");
+            let lhs = format!("(get Field (set Field (set Field (array a b c) {idx} v1) {idx} v2) {i})");
+            let rhs = format!("(get Field (set Field (array a b c) {idx} v2) {i})");
             let l = eval_str(&lhs, &env).as_field().unwrap();
             let r = eval_str(&rhs, &env).as_field().unwrap();
             prop_assert_eq!(l, r);
@@ -339,9 +339,9 @@ proptest! {
             ("a", fr_from_u64(a_val)), ("b", fr_from_u64(b_val)),
             ("c", fr_from_u64(c_val)), ("v", fr_from_u64(v_val)),
         ]);
-        let lhs_expr = format!("(alen (store Field (mkarray a b c) {idx} v))");
+        let lhs_expr = format!("(length (set Field (array a b c) {idx} v))");
         let lhs = eval_str(&lhs_expr, &env);
-        let rhs = eval_str("(alen (mkarray a b c))", &env);
+        let rhs = eval_str("(length (array a b c))", &env);
         prop_assert_eq!(lhs, rhs);
     }
 }
@@ -357,7 +357,7 @@ proptest! {
             ("c0", fr_from_u64(c0)), ("c1", fr_from_u64(c1)), ("c2", fr_from_u64(c2)),
             ("x", fr_from_u64(x)),
         ]);
-        let r = eval_str("(eval DensePoly (add DensePoly DensePoly (poly:duv c0 c1 c2) (neg DensePoly (poly:duv c0 c1 c2))) x)", &env).as_field().unwrap();
+        let r = eval_str("(eval DensePoly (add DensePoly DensePoly (coerce (arrayof Field) DensePoly (array c0 c1 c2)) (neg DensePoly (coerce (arrayof Field) DensePoly (array c0 c1 c2)))) x)", &env).as_field().unwrap();
         prop_assert!(r.is_zero());
     }
 
@@ -366,7 +366,7 @@ proptest! {
         let env = env_with_fields(&[
             ("c0", fr_from_u64(c0)), ("c1", fr_from_u64(c1)), ("x", fr_from_u64(x)),
         ]);
-        let r = eval_str("(eval DensePoly (add DensePoly DensePoly (poly:duv c0 c1) (neg DensePoly (poly:duv c0 c1))) x)", &env).as_field().unwrap();
+        let r = eval_str("(eval DensePoly (add DensePoly DensePoly (coerce (arrayof Field) DensePoly (array c0 c1)) (neg DensePoly (coerce (arrayof Field) DensePoly (array c0 c1)))) x)", &env).as_field().unwrap();
         prop_assert!(r.is_zero());
     }
 
@@ -382,8 +382,8 @@ proptest! {
             ("c", fr_from_u64(c_val)), ("x", fr_from_u64(x_val)),
         ]);
         // c * (p + q) == c*p + c*q
-        let lhs = eval_str("(eval DensePoly (scale DensePoly c (add DensePoly DensePoly (poly:duv a0 a1) (poly:duv b0 b1))) x)", &env).as_field().unwrap();
-        let rhs = eval_str("(eval DensePoly (add DensePoly DensePoly (scale DensePoly c (poly:duv a0 a1)) (scale DensePoly c (poly:duv b0 b1))) x)", &env).as_field().unwrap();
+        let lhs = eval_str("(eval DensePoly (scale DensePoly c (add DensePoly DensePoly (coerce (arrayof Field) DensePoly (array a0 a1)) (coerce (arrayof Field) DensePoly (array b0 b1)))) x)", &env).as_field().unwrap();
+        let rhs = eval_str("(eval DensePoly (add DensePoly DensePoly (scale DensePoly c (coerce (arrayof Field) DensePoly (array a0 a1))) (scale DensePoly c (coerce (arrayof Field) DensePoly (array b0 b1)))) x)", &env).as_field().unwrap();
         prop_assert_eq!(lhs, rhs);
     }
 
@@ -395,16 +395,16 @@ proptest! {
             ("v0", fr_from_u64(v0)), ("v1", fr_from_u64(v1)),
             ("v2", fr_from_u64(v2)), ("v3", fr_from_u64(v3)),
         ]);
-        let r00 = eval_str("(eval DenseMLE (poly:dmle 2 (mkarray v0 v1 v2 v3)) (mkarray 0 0))", &env).as_field().unwrap();
+        let r00 = eval_str("(eval DenseMLE (coerce (arrayof Field) DenseMLE (array v0 v1 v2 v3)) (array 0 0))", &env).as_field().unwrap();
         prop_assert_eq!(r00, fr_from_u64(v0));
 
-        let r10 = eval_str("(eval DenseMLE (poly:dmle 2 (mkarray v0 v1 v2 v3)) (mkarray 1 0))", &env).as_field().unwrap();
+        let r10 = eval_str("(eval DenseMLE (coerce (arrayof Field) DenseMLE (array v0 v1 v2 v3)) (array 1 0))", &env).as_field().unwrap();
         prop_assert_eq!(r10, fr_from_u64(v1));
 
-        let r01 = eval_str("(eval DenseMLE (poly:dmle 2 (mkarray v0 v1 v2 v3)) (mkarray 0 1))", &env).as_field().unwrap();
+        let r01 = eval_str("(eval DenseMLE (coerce (arrayof Field) DenseMLE (array v0 v1 v2 v3)) (array 0 1))", &env).as_field().unwrap();
         prop_assert_eq!(r01, fr_from_u64(v2));
 
-        let r11 = eval_str("(eval DenseMLE (poly:dmle 2 (mkarray v0 v1 v2 v3)) (mkarray 1 1))", &env).as_field().unwrap();
+        let r11 = eval_str("(eval DenseMLE (coerce (arrayof Field) DenseMLE (array v0 v1 v2 v3)) (array 1 1))", &env).as_field().unwrap();
         prop_assert_eq!(r11, fr_from_u64(v3));
     }
 
@@ -415,8 +415,8 @@ proptest! {
         let env = env_with_fields(&[
             ("a0", fr_from_u64(a0)), ("a1", fr_from_u64(a1)), ("x", fr_from_u64(x_val)),
         ]);
-        let dense = eval_str("(eval DensePoly (poly:duv a0 a1) x)", &env).as_field().unwrap();
-        let sparse = eval_str("(eval SparsePoly (poly:suv 0 a0 1 a1) x)", &env).as_field().unwrap();
+        let dense = eval_str("(eval DensePoly (coerce (arrayof Field) DensePoly (array a0 a1)) x)", &env).as_field().unwrap();
+        let sparse = eval_str("(eval SparsePoly (poly (ids x) a0 (mul Field Field a1 x)) x)", &env).as_field().unwrap();
         prop_assert_eq!(dense, sparse);
     }
 }

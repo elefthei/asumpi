@@ -14,36 +14,32 @@ define_language! {
     pub enum ArkLang {
         Num(i64),
 
-        // ── Polynomial Constructors (5 + 2 symbolic) ──
-        "poly:duv"  = PolyDUV(Box<[Id]>),
-        "poly:suv"  = PolySUV(Box<[Id]>),
-        "poly:dmle" = PolyDMLE([Id; 2]),
-        "poly:smle" = PolySMLE([Id; 2]),
-        "poly:mv"   = PolyMV([Id; 3]),
+        // ── Symbolic Constructors ──
         "ids"       = Ids(Box<[Id]>),
         "poly"      = Poly(Box<[Id]>),
+        "mle"       = Mle(Box<[Id]>),
 
-        // ── Poly-Specific (1) ──
+        // ── Poly-Specific ──
         "fix"  = Fix([Id; 2]),
 
-        // ── Tuples (3) ──
+        // ── Tuples ──
         "pair" = Pair([Id; 2]),
         "fst"  = Fst([Id; 1]),
         "snd"  = Snd([Id; 1]),
 
-        // ── Domain (1) ──
+        // ── Domain ──
         "domain" = Domain([Id; 1]),
 
-        // ── Indexed Sum/Product (3) ──
+        // ── Indexed Sum/Product ──
         "bound" = Bound([Id; 2]),
         "Σ"     = Sigma([Id; 4]),
         "Π"     = Pi([Id; 4]),
 
-        // ── Array (3) ──
-        "mkarray" = MkArray(Box<[Id]>),
-        "alen"    = ALen([Id; 1]),
+        // ── Array ──
+        "array" = MkArray(Box<[Id]>),
+        "length" = Length([Id; 1]),
 
-        // ── Control (2) ──
+        // ── Control ──
         "let" = Let([Id; 3]),
         "if"  = If([Id; 3]),
 
@@ -61,24 +57,26 @@ define_language! {
         "Array"      = TArray,
         "Pair"       = TPair,
 
+        // ── Compound Type Tag ──
+        "arrayof" = ArrayOf([Id; 1]),
+
         // ── Typed Operations ──
-        "coerce" = Coerce([Id; 3]),
-        "add"   = Add([Id; 4]),
-        "neg"   = Neg([Id; 2]),
-        "mul"   = Mul([Id; 4]),
-        "inv"   = Inv([Id; 2]),
-        "scale" = Scale([Id; 3]),
-        "pow"   = Pow([Id; 3]),
-        "eval"  = Eval([Id; 3]),
-        "deg"   = Deg([Id; 2]),
-        "nvars" = NVars([Id; 2]),
-        "pdiv"  = PDiv([Id; 3]),
-        "fft"   = Fft([Id; 3]),
-        "ifft"  = Ifft([Id; 3]),
-        "select"= Select([Id; 3]),
-        "store" = Store([Id; 4]),
-        "aadd"  = AAdd([Id; 3]),
-        "eq"    = Eq([Id; 3]),
+        "coerce"  = Coerce([Id; 3]),
+        "add"     = Add([Id; 4]),
+        "neg"     = Neg([Id; 2]),
+        "mul"     = Mul([Id; 4]),
+        "inv"     = Inv([Id; 2]),
+        "scale"   = Scale([Id; 3]),
+        "pow"     = Pow([Id; 3]),
+        "eval"    = Eval([Id; 3]),
+        "deg"     = Deg([Id; 2]),
+        "numvars" = NVars([Id; 2]),
+        "div"     = Div([Id; 3]),
+        "fft"     = Fft([Id; 3]),
+        "ifft"    = Ifft([Id; 3]),
+        "get"     = Get([Id; 3]),
+        "set"     = Set([Id; 4]),
+        "eq"      = Eq([Id; 3]),
 
         // ── Variable Reference ──
         Symbol(egg::Symbol),
@@ -133,14 +131,14 @@ mod tests {
 
     #[test]
     fn test_parse_array() {
-        let expr: RecExpr<ArkLang> = "(mkarray 1 2 3)".parse().unwrap();
+        let expr: RecExpr<ArkLang> = "(array 1 2 3)".parse().unwrap();
         assert_eq!(expr.as_ref().len(), 4);
     }
 
     #[test]
     fn test_parse_sigma() {
         let expr: RecExpr<ArkLang> =
-            "(Σ i 0 3 (select Int (mkarray 10 20 30) i))".parse().unwrap();
+            "(Σ i 0 3 (get Int (array 10 20 30) i))".parse().unwrap();
         assert!(expr.as_ref().len() >= 4);
     }
 
@@ -154,8 +152,8 @@ mod tests {
     #[test]
     fn test_parse_poly() {
         let expr: RecExpr<ArkLang> =
-            "(eval DensePoly (poly:duv 1 2 3) 5)".parse().unwrap();
-        assert!(expr.as_ref().len() >= 5);
+            "(eval DensePoly (coerce (arrayof Field) DensePoly (array 1 2 3)) 5)".parse().unwrap();
+        assert!(expr.as_ref().len() >= 8);
     }
 
     #[test]

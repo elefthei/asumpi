@@ -204,8 +204,6 @@ pub fn conversion_rules() -> Vec<Rewrite<ArkLang, TypeAnalysis>> {
         // Typed FFT/IFFT roundtrips
         rewrite!("ifft-fft"; "(ifft Array ?n (fft ?T ?n ?p))" => "?p"),
         rewrite!("fft-ifft"; "(fft DensePoly ?n (ifft Array ?n ?e))" => "?e"),
-        // Typed aadd commutativity
-        rewrite!("aadd-comm"; "(aadd ?T ?a ?b)" => "(aadd ?T ?b ?a)"),
         // Tuple projections
         rewrite!("fst-pair"; "(fst (pair ?a ?b))" => "?a"),
         rewrite!("snd-pair"; "(snd (pair ?a ?b))" => "?b"),
@@ -344,7 +342,7 @@ mod tests {
         // After unrolling, Σ i 0 2 body should produce (add T T (let i 0 body) (let i 1 body))
         // The body type is Unknown (symbol 'a' has Unknown type), so the applier may not fire.
         // Use a body with known type (e.g., contains Int literal) to test.
-        let e1: RecExpr<ArkLang> = "(Σ i 0 2 (select Int (mkarray 10 20) i))".parse().unwrap();
+        let e1: RecExpr<ArkLang> = "(Σ i 0 2 (get Int (array 10 20) i))".parse().unwrap();
         let mut egraph: EGraph<ArkLang, TypeAnalysis> = EGraph::default();
         let id1 = egraph.add_expr(&e1);
         let runner = Runner::<ArkLang, TypeAnalysis>::default()
@@ -357,7 +355,7 @@ mod tests {
     #[test]
     fn test_typed_sigma_unroll_3() {
         let rules = sigma_unroll_rules();
-        let e1: RecExpr<ArkLang> = "(Σ i 0 3 (select Int (mkarray 10 20 30) i))".parse().unwrap();
+        let e1: RecExpr<ArkLang> = "(Σ i 0 3 (get Int (array 10 20 30) i))".parse().unwrap();
         let mut egraph: EGraph<ArkLang, TypeAnalysis> = EGraph::default();
         let id1 = egraph.add_expr(&e1);
         let runner = Runner::<ArkLang, TypeAnalysis>::default()
@@ -435,8 +433,8 @@ mod tests {
     fn test_sigma_factor_tscale() {
         let rules = guarded_arith_rules();
         assert_merge(
-            "(Σ i 0 N (scale Field c (select Int arr i)))",
-            "(scale Field c (Σ i 0 N (select Int arr i)))",
+            "(Σ i 0 N (scale Field c (get Int arr i)))",
+            "(scale Field c (Σ i 0 N (get Int arr i)))",
             &rules, "sigma-factor-scale"
         );
     }
@@ -445,8 +443,8 @@ mod tests {
     fn test_sigma_factor_tscale_blocked() {
         let rules = guarded_arith_rules();
         assert_no_merge(
-            "(Σ i 0 N (scale Field i (select Int arr i)))",
-            "(scale Field i (Σ i 0 N (select Int arr i)))",
+            "(Σ i 0 N (scale Field i (get Int arr i)))",
+            "(scale Field i (Σ i 0 N (get Int arr i)))",
             &rules, "sigma-factor-scale should NOT fire when scalar depends on loop var"
         );
     }
@@ -455,8 +453,8 @@ mod tests {
     fn test_sigma_factor_tmul() {
         let rules = guarded_arith_rules();
         assert_merge(
-            "(Σ i 0 N (mul Field Field c (select Int arr i)))",
-            "(mul Field Field c (Σ i 0 N (select Int arr i)))",
+            "(Σ i 0 N (mul Field Field c (get Int arr i)))",
+            "(mul Field Field c (Σ i 0 N (get Int arr i)))",
             &rules, "sigma-factor-mul"
         );
     }
@@ -555,13 +553,4 @@ mod tests {
         assert_eq!(simplified, "e");
     }
 
-    #[test]
-    fn test_aadd_comm() {
-        let rules = conversion_rules();
-        assert_merge(
-            "(aadd Field a b)",
-            "(aadd Field b a)",
-            &rules, "aadd-comm"
-        );
-    }
 }

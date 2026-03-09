@@ -51,35 +51,6 @@ impl Analysis<ArkLang> for TypeAnalysis {
                 free_vars.insert(*s);
             }
 
-            ArkLang::PolyDUV(args) => {
-                for id in args.iter() { free_vars.extend(&cd(id).free_vars); }
-                types.insert(ArkType::DensePoly);
-            }
-
-            ArkLang::PolySUV(args) => {
-                for id in args.iter() { free_vars.extend(&cd(id).free_vars); }
-                types.insert(ArkType::SparsePoly);
-            }
-
-            ArkLang::PolyDMLE([a, b]) => {
-                free_vars.extend(&cd(a).free_vars);
-                free_vars.extend(&cd(b).free_vars);
-                types.insert(ArkType::DenseMLE);
-            }
-
-            ArkLang::PolySMLE([a, b]) => {
-                free_vars.extend(&cd(a).free_vars);
-                free_vars.extend(&cd(b).free_vars);
-                types.insert(ArkType::SparseMLE);
-            }
-
-            ArkLang::PolyMV([a, b, c]) => {
-                free_vars.extend(&cd(a).free_vars);
-                free_vars.extend(&cd(b).free_vars);
-                free_vars.extend(&cd(c).free_vars);
-                types.insert(ArkType::MVPoly);
-            }
-
             ArkLang::Ids(args) => {
                 for id in args.iter() { free_vars.extend(&cd(id).free_vars); }
             }
@@ -127,7 +98,7 @@ impl Analysis<ArkLang> for TypeAnalysis {
                     body_vars.remove(&sym);
                 }
                 free_vars.extend(body_vars);
-                types.extend(&cd(body).types);
+                types.extend(cd(body).types.iter().cloned());
             }
 
             ArkLang::MkArray(args) => {
@@ -135,7 +106,7 @@ impl Analysis<ArkLang> for TypeAnalysis {
                 types.insert(ArkType::Array);
             }
 
-            ArkLang::ALen([a]) => {
+            ArkLang::Length([a]) => {
                 free_vars.extend(&cd(a).free_vars);
                 types.insert(ArkType::Int);
             }
@@ -147,15 +118,15 @@ impl Analysis<ArkLang> for TypeAnalysis {
                     body_vars.remove(&sym);
                 }
                 free_vars.extend(body_vars);
-                types.extend(&cd(body).types);
+                types.extend(cd(body).types.iter().cloned());
             }
 
             ArkLang::If([cond, then_, else_]) => {
                 free_vars.extend(&cd(cond).free_vars);
                 free_vars.extend(&cd(then_).free_vars);
                 free_vars.extend(&cd(else_).free_vars);
-                types.extend(&cd(then_).types);
-                types.extend(&cd(else_).types);
+                types.extend(cd(then_).types.iter().cloned());
+                types.extend(cd(else_).types.iter().cloned());
             }
 
             // ── Type Tags (leaf nodes, no children) ──
@@ -163,6 +134,18 @@ impl Analysis<ArkLang> for TypeAnalysis {
             | ArkLang::TDensePoly | ArkLang::TSparsePoly | ArkLang::TDenseMLE
             | ArkLang::TSparseMLE | ArkLang::TMVPoly | ArkLang::TArray | ArkLang::TPair => {
                 // Type tags carry no type information and no free vars
+            }
+
+            // ── Compound Type Tag ──
+            ArkLang::ArrayOf([inner]) => {
+                free_vars.extend(&cd(inner).free_vars);
+                // ArrayOf is a type constructor — carries no runtime type
+            }
+
+            // ── Symbolic MLE Constructor (placeholder) ──
+            ArkLang::Mle(args) => {
+                for id in args.iter() { free_vars.extend(&cd(id).free_vars); }
+                types.insert(ArkType::DenseMLE);
             }
 
             // ── Coerce ──
@@ -180,14 +163,14 @@ impl Analysis<ArkLang> for TypeAnalysis {
             ArkLang::Add([_ta, _tb, a, b]) | ArkLang::Mul([_ta, _tb, a, b]) => {
                 free_vars.extend(&cd(a).free_vars);
                 free_vars.extend(&cd(b).free_vars);
-                types.extend(&cd(a).types);
-                types.extend(&cd(b).types);
+                types.extend(cd(a).types.iter().cloned());
+                types.extend(cd(b).types.iter().cloned());
             }
 
             // ── Typed Neg ──
             ArkLang::Neg([_t, a]) => {
                 free_vars.extend(&cd(a).free_vars);
-                types.extend(&cd(a).types);
+                types.extend(cd(a).types.iter().cloned());
             }
 
             // ── Typed Inv ──
@@ -200,7 +183,7 @@ impl Analysis<ArkLang> for TypeAnalysis {
             ArkLang::Scale([_t, c, a]) => {
                 free_vars.extend(&cd(c).free_vars);
                 free_vars.extend(&cd(a).free_vars);
-                types.extend(&cd(a).types);
+                types.extend(cd(a).types.iter().cloned());
             }
 
             // ── Typed Pow ──
@@ -229,11 +212,11 @@ impl Analysis<ArkLang> for TypeAnalysis {
                 types.insert(ArkType::Int);
             }
 
-            // ── Typed PDiv ──
-            ArkLang::PDiv([_t, a, b]) => {
+            // ── Typed Div ──
+            ArkLang::Div([_t, a, b]) => {
                 free_vars.extend(&cd(a).free_vars);
                 free_vars.extend(&cd(b).free_vars);
-                types.extend(&cd(a).types);
+                types.extend(cd(a).types.iter().cloned());
             }
 
             // ── Typed FFT ──
@@ -250,25 +233,18 @@ impl Analysis<ArkLang> for TypeAnalysis {
                 types.insert(ArkType::DensePoly);
             }
 
-            // ── Typed Select ──
-            ArkLang::Select([_t, arr, idx]) => {
+            // ── Typed Get ──
+            ArkLang::Get([_t, arr, idx]) => {
                 free_vars.extend(&cd(arr).free_vars);
                 free_vars.extend(&cd(idx).free_vars);
-                types.extend(&cd(arr).types); // element type from the tag
+                types.extend(cd(arr).types.iter().cloned()); // element type from the tag
             }
 
-            // ── Typed Store ──
-            ArkLang::Store([_t, arr, idx, val]) => {
+            // ── Typed Set ──
+            ArkLang::Set([_t, arr, idx, val]) => {
                 free_vars.extend(&cd(arr).free_vars);
                 free_vars.extend(&cd(idx).free_vars);
                 free_vars.extend(&cd(val).free_vars);
-                types.insert(ArkType::Array);
-            }
-
-            // ── Typed AAdd ──
-            ArkLang::AAdd([_t, a, b]) => {
-                free_vars.extend(&cd(a).free_vars);
-                free_vars.extend(&cd(b).free_vars);
                 types.insert(ArkType::Array);
             }
 
@@ -366,7 +342,7 @@ mod tests {
 
     #[test]
     fn test_free_vars_sigma() {
-        let (egraph, ids) = make_egraph(&["(Σ i 0 N (scale Field c (select Int arr i)))"]);
+        let (egraph, ids) = make_egraph(&["(Σ i 0 N (scale Field c (get Int arr i)))"]);
         let data = &egraph[ids[0]].data;
         // i is bound by Σ; c, arr, N are free
         assert!(!data.free_vars.contains(&Symbol::from("i")));
@@ -407,14 +383,14 @@ mod tests {
 
     #[test]
     fn test_type_poly_constructor() {
-        let (egraph, ids) = make_egraph(&["(poly:duv 1 2 3)"]);
+        let (egraph, ids) = make_egraph(&["(coerce (arrayof Field) DensePoly (array 1 2 3))"]);
         let data = &egraph[ids[0]].data;
         assert!(data.types.contains(&ArkType::DensePoly));
     }
 
     #[test]
     fn test_type_eval_produces_field() {
-        let (egraph, ids) = make_egraph(&["(eval DensePoly (poly:duv 1 2) 5)"]);
+        let (egraph, ids) = make_egraph(&["(eval DensePoly (coerce (arrayof Field) DensePoly (array 1 2)) 5)"]);
         let data = &egraph[ids[0]].data;
         assert!(data.types.contains(&ArkType::Field));
     }
@@ -428,14 +404,14 @@ mod tests {
 
     #[test]
     fn test_type_mkarray() {
-        let (egraph, ids) = make_egraph(&["(mkarray 1 2 3)"]);
+        let (egraph, ids) = make_egraph(&["(array 1 2 3)"]);
         let data = &egraph[ids[0]].data;
         assert!(data.types.contains(&ArkType::Array));
     }
 
     #[test]
     fn test_independent_of_true() {
-        let (mut egraph, _) = make_egraph(&["(Σ i 0 3 (scale Field c (select Int arr i)))"]);
+        let (mut egraph, _) = make_egraph(&["(Σ i 0 3 (scale Field c (get Int arr i)))"]);
         let cond = IndependentOf {
             expr_var: "?c".parse().unwrap(),
             idx_var: "?i".parse().unwrap(),
@@ -455,7 +431,7 @@ mod tests {
 
     #[test]
     fn test_independent_of_false() {
-        let (mut egraph, _) = make_egraph(&["(Σ i 0 3 (scale Field i (select Int arr i)))"]);
+        let (mut egraph, _) = make_egraph(&["(Σ i 0 3 (scale Field i (get Int arr i)))"]);
         let cond = IndependentOf {
             expr_var: "?c".parse().unwrap(),
             idx_var: "?i".parse().unwrap(),
@@ -477,7 +453,7 @@ mod tests {
     fn test_independent_of_complex_expr() {
         // c = (add Int Int a b), independent of i
         let (mut egraph, _) =
-            make_egraph(&["(Σ i 0 N (scale Field (add Int Int a b) (select Int arr i)))"]);
+            make_egraph(&["(Σ i 0 N (scale Field (add Int Int a b) (get Int arr i)))"]);
         let cond = IndependentOf {
             expr_var: "?c".parse().unwrap(),
             idx_var: "?i".parse().unwrap(),
@@ -499,7 +475,7 @@ mod tests {
     fn test_independent_of_expr_uses_idx() {
         // c = (add Int Int a i), depends on i
         let (mut egraph, _) =
-            make_egraph(&["(Σ i 0 N (scale Field (add Int Int a i) (select Int arr i)))"]);
+            make_egraph(&["(Σ i 0 N (scale Field (add Int Int a i) (get Int arr i)))"]);
         let cond = IndependentOf {
             expr_var: "?c".parse().unwrap(),
             idx_var: "?i".parse().unwrap(),

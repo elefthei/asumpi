@@ -13,7 +13,7 @@ use std::fmt;
 
 /// Type tags for arkΣΠ values (also used in analysis).
 /// Defined here to avoid circular dependencies.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum ArkType {
     Int,
     Field,
@@ -24,6 +24,7 @@ pub enum ArkType {
     SparseMLE,
     MVPoly,
     Array,
+    ArrayOf(Box<ArkType>),
     Pair,
     Bool,
     Unknown,
