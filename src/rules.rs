@@ -211,6 +211,31 @@ pub fn conversion_rules() -> Vec<Rewrite<ArkLang, TypeAnalysis>> {
     ]
 }
 
+/// Stream-fusion rules: eliminate intermediate arrays between for/Σ.
+pub fn fusion_rules() -> Vec<Rewrite<ArkLang, TypeAnalysis>> {
+    vec![
+        // Fold over comprehension → direct fold (eliminates intermediate array)
+        rewrite!("sigma-for-fusion";
+            "(Σ ?i ?lo ?hi (get ?T (for ?i ?lo ?hi ?body) ?i))" => "(Σ ?i ?lo ?hi ?body)"),
+
+        // Comprehension over comprehension → single comprehension
+        rewrite!("for-for-fusion";
+            "(for ?i ?lo ?hi (get ?T (for ?i ?lo ?hi ?body) ?i))" => "(for ?i ?lo ?hi ?body)"),
+
+        // Negation floats out of Σ
+        rewrite!("sigma-neg-body";
+            "(Σ ?i ?lo ?hi (neg ?T ?f))" => "(neg ?T (Σ ?i ?lo ?hi ?f))"),
+
+        // Read-after-write elimination
+        rewrite!("get-set-same";
+            "(get ?T (set ?T ?arr ?i ?v) ?i)" => "?v"),
+
+        // Index into comprehension → let substitution
+        rewrite!("get-for";
+            "(get ?T (for ?i ?lo ?n ?body) ?k)" => "(let ?i ?k ?body)"),
+    ]
+}
+
 /// All rules combined (typed only).
 pub fn all_rules() -> Vec<Rewrite<ArkLang, TypeAnalysis>> {
     let mut rules = add_rules();
@@ -221,6 +246,7 @@ pub fn all_rules() -> Vec<Rewrite<ArkLang, TypeAnalysis>> {
     rules.extend(sigma_unroll_rules());
     rules.extend(eval_rules());
     rules.extend(conversion_rules());
+    rules.extend(fusion_rules());
     rules
 }
 
@@ -551,6 +577,111 @@ mod tests {
             &rules
         );
         assert_eq!(simplified, "e");
+    }
+
+    // ═══════════════════════════════════════════════
+    // Fusion rules
+    // ═══════════════════════════════════════════════
+
+    #[test]
+    fn test_sigma_for_fusion() {
+        let rules = fusion_rules();
+        assert_merge(
+            "(Σ i 0 n (get Field (for i 0 n body) i))",
+            "(Σ i 0 n body)",
+            &rules,
+            "sigma-for-fusion: fold over comprehension eliminates intermediate array",
+        );
+    }
+
+    #[test]
+    fn test_for_for_fusion() {
+        let rules = fusion_rules();
+        assert_merge(
+            "(for i 0 n (get Field (for i 0 n body) i))",
+            "(for i 0 n body)",
+            &rules,
+            "for-for-fusion: nested comprehension with identity get collapses",
+        );
+    }
+
+    #[test]
+    fn test_sigma_neg_body() {
+        let rules = fusion_rules();
+        assert_merge(
+            "(Σ i 0 n (neg Field f))",
+            "(neg Field (Σ i 0 n f))",
+            &rules,
+            "sigma-neg-body: negation floats out of summation",
+        );
+    }
+
+    #[test]
+    fn test_get_set_same() {
+        let rules = fusion_rules();
+        assert_merge(
+            "(get Field (set Field arr i v) i)",
+            "v",
+            &rules,
+            "get-set-same: read-after-write elimination",
+        );
+    }
+
+    #[test]
+    fn test_get_for() {
+        let rules = fusion_rules();
+        assert_merge(
+            "(get Field (for i 0 n body) k)",
+            "(let i k body)",
+            &rules,
+            "get-for: index into comprehension becomes let substitution",
+        );
+    }
+
+    #[test]
+    fn test_sigma_for_fusion_eval() {
+        // Verify fusion produces correct result:
+        // Build intermediate array via for, then sum via Σ — should equal direct sum
+        let env = empty_env();
+        // Direct: Σ i=0..3 (mul Field Field i i) = 0+1+4 = 5
+        let direct = eval_str("(Σ i 0 3 (mul Field Field i i))", &env);
+        // Via intermediate: Σ i=0..3 (get Field (for i 0 3 (mul Field Field i i)) i)
+        let fused = eval_str("(Σ i 0 3 (get Field (for i 0 3 (mul Field Field i i)) i))", &env);
+        assert_eq!(direct, fused);
+    }
+
+    #[test]
+    fn test_for_for_fusion_eval() {
+        let env = empty_env();
+        // Direct: (for i 0 3 (add Field Field i 1)) = [1, 2, 3]
+        let direct = eval_str("(for i 0 3 (add Field Field i 1))", &env);
+        // Via intermediate: (for i 0 3 (get Field (for i 0 3 (add Field Field i 1)) i))
+        let fused = eval_str("(for i 0 3 (get Field (for i 0 3 (add Field Field i 1)) i))", &env);
+        assert_eq!(direct, fused);
+    }
+
+    #[test]
+    fn test_get_for_eval() {
+        let env = empty_env();
+        // (get Field (for i 0 5 (mul Field Field i i)) 3) should be 9
+        let v = eval_str("(get Field (for i 0 5 (mul Field Field i i)) 3)", &env);
+        let expected = eval_str("(let i 3 (mul Field Field i i))", &env);
+        assert_eq!(v, expected);
+    }
+
+    #[test]
+    fn test_sigma_for_fusion_dot_pattern() {
+        // The classic dot product fusion:
+        // Σ i 0 n (get Field (for i 0 n (mul Field Field (get Field as i) (get Field bs i))) i)
+        // should fuse to:
+        // Σ i 0 n (mul Field Field (get Field as i) (get Field bs i))
+        let rules = fusion_rules();
+        assert_merge(
+            "(Σ i 0 n (get Field (for i 0 n (mul Field Field (get Field as i) (get Field bs i))) i))",
+            "(Σ i 0 n (mul Field Field (get Field as i) (get Field bs i)))",
+            &rules,
+            "sigma-for-fusion on dot product pattern",
+        );
     }
 
 }
