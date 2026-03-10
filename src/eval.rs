@@ -796,32 +796,43 @@ fn typed_neg(ty: ArkType, va: Value) -> Result<Value, EvalError> {
         Int => Ok(Value::Int(-va.as_int()?)),
         Curve => Ok(Value::Curve(-va.as_curve()?)),
         DensePoly => Ok(Value::Polynomial(-va.as_polynomial()?)),
-        SparsePoly => {
-            let p = va.as_sparse_uv_poly()?;
-            let neg_coeffs: Vec<(usize, Fr)> = p.to_vec().iter()
-                .map(|(i, c)| (*i, -(*c)))
-                .collect();
-            Ok(Value::SparseUVPoly(SparseUVPolynomial::from_coefficients_vec(neg_coeffs)))
-        }
-        DenseMLE => {
-            let m = va.as_mle()?;
-            let nv = m.num_vars();
-            let neg_evals: Vec<Fr> = m.to_evaluations().iter().map(|v| -(*v)).collect();
-            Ok(Value::MLE(DenseMultilinearExtension::from_evaluations_vec(nv, neg_evals)))
-        }
-        MVPoly => {
-            let p = va.as_mvpoly()?;
-            let nv = p.num_vars();
-            let neg_terms: Vec<(Fr, SparseTerm)> = p.terms().iter()
-                .map(|(c, t)| (-(*c), t.clone()))
-                .collect();
-            Ok(Value::MVPoly(MVSparsePolynomial::from_coefficients_vec(nv, neg_terms)))
-        }
+        SparsePoly | DenseMLE | MVPoly => scalar_mul(-Fr::one(), va, &ty),
         _ => Err(EvalError::TypeError(format!("neg: unsupported type {:?}", ty))),
     }
 }
 
-/// Strictly-typed mul: handles same-type products and cross-type scalar multiplication.
+/// Multiply a scalar field element by a value of the given type.
+fn scalar_mul(s: Fr, val: Value, ty: &ArkType) -> Result<Value, EvalError> {
+    use ArkType::*;
+    match ty {
+        Curve => Ok(Value::Curve(val.as_curve()? * s)),
+        DensePoly => Ok(Value::Polynomial(&val.as_polynomial()? * s)),
+        SparsePoly => {
+            let p = val.as_sparse_uv_poly()?;
+            let coeffs: Vec<(usize, Fr)> = p.to_vec().iter()
+                .map(|(i, coeff)| (*i, *coeff * s))
+                .collect();
+            Ok(Value::SparseUVPoly(SparseUVPolynomial::from_coefficients_vec(coeffs)))
+        }
+        DenseMLE => {
+            let m = val.as_mle()?;
+            let nv = m.num_vars();
+            let evals: Vec<Fr> = m.to_evaluations().iter().map(|v| *v * s).collect();
+            Ok(Value::MLE(DenseMultilinearExtension::from_evaluations_vec(nv, evals)))
+        }
+        MVPoly => {
+            let p = val.as_mvpoly()?;
+            let nv = p.num_vars();
+            let terms: Vec<(Fr, SparseTerm)> = p.terms().iter()
+                .map(|(c, t)| (*c * s, t.clone()))
+                .collect();
+            Ok(Value::MVPoly(MVSparsePolynomial::from_coefficients_vec(nv, terms)))
+        }
+        _ => Err(EvalError::TypeError(format!("scalar_mul: unsupported target type {:?}", ty))),
+    }
+}
+
+/// Typed mul: same-type products and cross-type scalar multiplication.
 fn typed_mul(ty_a: ArkType, ty_b: ArkType, va: Value, vb: Value) -> Result<Value, EvalError> {
     use ArkType::*;
     match (&ty_a, &ty_b) {
@@ -834,73 +845,15 @@ fn typed_mul(ty_a: ArkType, ty_b: ArkType, va: Value, vb: Value) -> Result<Value
             Ok(Value::Polynomial(&pa * &pb))
         }
 
-        // Scalar × T (absorbed from scale)
-        (Field, Curve) | (Int, Curve) => {
-            let s = va.as_field()?;
-            Ok(Value::Curve(vb.as_curve()? * s))
-        }
-        (Field, DensePoly) | (Int, DensePoly) => {
-            let s = va.as_field()?;
-            Ok(Value::Polynomial(&vb.as_polynomial()? * s))
-        }
-        (Field, SparsePoly) | (Int, SparsePoly) => {
-            let s = va.as_field()?;
-            let p = vb.as_sparse_uv_poly()?;
-            let scaled: Vec<(usize, Fr)> = p.to_vec().iter()
-                .map(|(i, coeff)| (*i, *coeff * s))
-                .collect();
-            Ok(Value::SparseUVPoly(SparseUVPolynomial::from_coefficients_vec(scaled)))
-        }
-        (Field, DenseMLE) | (Int, DenseMLE) => {
-            let s = va.as_field()?;
-            let m = vb.as_mle()?;
-            let nv = m.num_vars();
-            let scaled_evals: Vec<Fr> = m.to_evaluations().iter().map(|v| *v * s).collect();
-            Ok(Value::MLE(DenseMultilinearExtension::from_evaluations_vec(nv, scaled_evals)))
-        }
-        (Field, MVPoly) | (Int, MVPoly) => {
-            let s = va.as_field()?;
-            let p = vb.as_mvpoly()?;
-            let nv = p.num_vars();
-            let scaled_terms: Vec<(Fr, SparseTerm)> = p.terms().iter()
-                .map(|(c, t)| (*c * s, t.clone()))
-                .collect();
-            Ok(Value::MVPoly(MVSparsePolynomial::from_coefficients_vec(nv, scaled_terms)))
+        // Scalar × T
+        (Field, t) | (Int, t) if matches!(t, Curve | DensePoly | SparsePoly | DenseMLE | MVPoly) => {
+            scalar_mul(va.as_field()?, vb, t)
         }
         (Field, Int) => Ok(Value::Field(va.as_field()? * int_to_fr(vb.as_int()?))),
 
         // T × Scalar (commutative)
-        (Curve, Field) | (Curve, Int) => {
-            let s = vb.as_field()?;
-            Ok(Value::Curve(va.as_curve()? * s))
-        }
-        (DensePoly, Field) | (DensePoly, Int) => {
-            let s = vb.as_field()?;
-            Ok(Value::Polynomial(&va.as_polynomial()? * s))
-        }
-        (SparsePoly, Field) | (SparsePoly, Int) => {
-            let s = vb.as_field()?;
-            let p = va.as_sparse_uv_poly()?;
-            let scaled: Vec<(usize, Fr)> = p.to_vec().iter()
-                .map(|(i, coeff)| (*i, *coeff * s))
-                .collect();
-            Ok(Value::SparseUVPoly(SparseUVPolynomial::from_coefficients_vec(scaled)))
-        }
-        (DenseMLE, Field) | (DenseMLE, Int) => {
-            let s = vb.as_field()?;
-            let m = va.as_mle()?;
-            let nv = m.num_vars();
-            let scaled_evals: Vec<Fr> = m.to_evaluations().iter().map(|v| *v * s).collect();
-            Ok(Value::MLE(DenseMultilinearExtension::from_evaluations_vec(nv, scaled_evals)))
-        }
-        (MVPoly, Field) | (MVPoly, Int) => {
-            let s = vb.as_field()?;
-            let p = va.as_mvpoly()?;
-            let nv = p.num_vars();
-            let scaled_terms: Vec<(Fr, SparseTerm)> = p.terms().iter()
-                .map(|(c, t)| (*c * s, t.clone()))
-                .collect();
-            Ok(Value::MVPoly(MVSparsePolynomial::from_coefficients_vec(nv, scaled_terms)))
+        (t, Field) | (t, Int) if matches!(t, Curve | DensePoly | SparsePoly | DenseMLE | MVPoly) => {
+            scalar_mul(vb.as_field()?, va, t)
         }
         (Int, Field) => Ok(Value::Field(int_to_fr(va.as_int()?) * vb.as_field()?)),
 
@@ -1898,7 +1851,7 @@ mod tests {
     // ── Array Addition via for Tests ──
 
     #[test]
-    fn test_aadd_basic() {
+    fn test_for_array_add_basic() {
         let env = empty_env();
         // [1,2,3] + [4,5,6] = [5,7,9]
         let v = eval_str("(for i 0 3 (add Field Field (get Field (array 1 2 3) i) (get Field (array 4 5 6) i)))", &env).unwrap().as_array().unwrap();
@@ -1909,7 +1862,7 @@ mod tests {
     }
 
     #[test]
-    fn test_aadd_empty() {
+    fn test_for_array_add_empty() {
         let env = empty_env();
         // (for i 0 0 ...) → empty array
         let v = eval_str("(for i 0 0 (add Field Field (get Field (array) i) (get Field (array) i)))", &env).unwrap().as_array().unwrap();
@@ -1917,7 +1870,7 @@ mod tests {
     }
 
     // ═══════════════════════════════════════════════
-    // Wave 0: Type tags, coerce, and helpers
+    // Type tags, coerce, and validate_type
     // ═══════════════════════════════════════════════
 
     #[test]
@@ -2145,7 +2098,7 @@ mod tests {
     }
 
     // ═══════════════════════════════════════════════
-    // Wave 1: Typed add (add)
+    // Typed add
     // ═══════════════════════════════════════════════
 
     #[test]
@@ -2233,7 +2186,7 @@ mod tests {
     }
 
     // ═══════════════════════════════════════════════
-    // Wave 2: Typed neg, mul, inv, pow
+    // Typed neg, mul, inv, pow
     // ═══════════════════════════════════════════════
 
     #[test]
@@ -2353,7 +2306,7 @@ mod tests {
     }
 
     // ═══════════════════════════════════════════════
-    // Wave 3: Typed query/poly/array/comparison ops
+    // Query, polynomial, array, and comparison ops
     // ═══════════════════════════════════════════════
 
     // ── Eval ──
@@ -2509,9 +2462,9 @@ mod tests {
         assert_eq!(arr[1], Value::Field(fr(20)));
     }
 
-    // ── AAdd via for ──
+    // ── Typed array add via for ──
     #[test]
-    fn test_taadd() {
+    fn test_typed_for_array_add() {
         let env = empty_env();
         let v = eval_str("(for i 0 2 (add Field Field (get Field (array (coerce Int Field 1) (coerce Int Field 2)) i) (get Field (array (coerce Int Field 10) (coerce Int Field 20)) i)))", &env).unwrap();
         let arr = v.as_array().unwrap();

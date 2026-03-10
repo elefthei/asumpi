@@ -310,7 +310,7 @@ mod tests {
     }
 
     // ═══════════════════════════════════════════════
-    // Wave 1: Typed add (add) rewrite rule tests
+    // Add rewrite rules
     // ═══════════════════════════════════════════════
 
     #[test]
@@ -399,7 +399,7 @@ mod tests {
     }
 
     // ═══════════════════════════════════════════════
-    // Wave 2: Typed arith rewrite rules
+    // Arithmetic rewrite rules
     // ═══════════════════════════════════════════════
 
     #[test]
@@ -494,7 +494,7 @@ mod tests {
     }
 
     // ═══════════════════════════════════════════════
-    // Wave 3: Typed eval-distribution + conversion + aadd rules
+    // Eval-distribution and conversion rules
     // ═══════════════════════════════════════════════
 
     #[test]
