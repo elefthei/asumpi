@@ -144,19 +144,19 @@ Dot products and Hadamard (element-wise) products are expressed compositionally 
 (length arr)                                   ;; array length
 ```
 
-## Rewrite Rules (33 total)
+## Rewrite Rules (39 total)
 
 | Category | Function | Count | Examples |
 |----------|----------|-------|---------|
 | Algebra (add) | `add_rules` | 3 | `add-comm`, `add-assoc`, `add-neg` |
 | Algebra (arith) | `arith_rules` | 8 | `double-neg`, `mul-dist`, `mul-one`, `mul-zero`, `mul-scalar-dist` |
-| Eval distribution | `eval_rules` | 4 | `eval-add`, `eval-neg`, `eval-scale`, `eval-mul` |
+| Eval distribution | `eval_rules` | 4 | `eval-add`, `eval-neg`, `eval-mul-scalar`, `eval-mul` |
 | Σ transforms | `sigma_rules` | 1 | `sigma-dist-add` |
 | Σ unrolling | `sigma_unroll_rules` | 2 | `sigma-unroll-2`, `sigma-unroll-3` |
 | Guarded Σ | `guarded_sigma_rules` | 1 | `sigma-fusion-add` |
 | Guarded arith | `guarded_arith_rules` | 2 | `sigma-factor-scalar`, `sigma-factor-mul` |
 | Conversion/structural | `conversion_rules` | 9 | `ifft-fft`, `fst-pair`, `snd-pair`, `pair-eta`, coerce roundtrips |
-| Stream fusion | `fusion_rules` | 5 | `sigma-for-fusion`, `for-for-fusion`, `sigma-neg-body`, `get-set-same`, `get-for` |
+| Stream fusion | `fusion_rules` | 9 | `sigma-for-fusion`, `for-for-fusion`, `get-for`, `get-set-same`, `set-set-same`, `set-get-noop`, `length-set`, `length-for`, `sigma-neg-body` |
 
 Guarded rules use `TypeAnalysis` (egg `Analysis` trait) to track free variables per e-class. Factor extraction only fires when the scalar is independent of the loop variable.
 
@@ -171,14 +171,20 @@ The `fusion_rules` group eliminates intermediate arrays produced by `for` compre
 ;; for-for fusion: collapses nested comprehension
 (for i 0 n (get T (for i 0 n body) i))  →  (for i 0 n body)
 
+;; Index into comprehension → let substitution
+(get T (for i 0 n body) k)  →  (let i k body)
+
+;; Get/set laws
+(get T (set T arr i v) i)  →  v           ;; read-after-write
+(set T (set T arr i v1) i v2)  →  (set T arr i v2)  ;; last write wins
+(set T arr i (get T arr i))  →  arr       ;; no-op write
+
+;; Length laws
+(length (set T arr i v))  →  (length arr)  ;; set preserves length
+(length (for i lo hi body))  →  (add Int Int hi (neg Int lo))
+
 ;; Negation floats out of Σ
 (Σ i 0 n (neg T f))  →  (neg T (Σ i 0 n f))
-
-;; Read-after-write elimination
-(get T (set T arr i v) i)  →  v
-
-;; Index into comprehension
-(get T (for i 0 n body) k)  →  (let i k body)
 ```
 
 `mul` absorbs the former `scale` operation: `(mul Field T scalar obj)` replaces `(scale T scalar obj)`.
@@ -187,7 +193,7 @@ The `fusion_rules` group eliminates intermediate arrays produced by `for` compre
 
 ```bash
 cargo build --release
-cargo test --release       # 307 tests (226 lib + 44 algebraic laws + 37 property)
+cargo test --release       # 313 tests (232 lib + 44 algebraic laws + 37 property)
 cargo run --release        # 71 demo tests → results.json
 ```
 
@@ -195,7 +201,7 @@ Always use `--release`; arkworks crypto operations are extremely slow in debug m
 
 ## Test Suite
 
-- **226 unit tests**: evaluator, language parsing, rewrite rules, type analysis, guarded conditions, FFT/IFFT, symbolic poly, tuples, coerce, typed ops, for comprehension, stream fusion
+- **232 unit tests**: evaluator, language parsing, rewrite rules, type analysis, guarded conditions, FFT/IFFT, symbolic poly, tuples, coerce, typed ops, for comprehension, stream fusion
 - **44 algebraic law tests**: rewrite rule soundness, optimizer round-trip, guard necessity, cross-type laws, FFT roundtrip, div identity
 - **37 property tests**: field/curve/polynomial ring axioms, array theory, Σ-MSM linearity, for comprehension properties
 - **71 demo tests**: comprehensive integration coverage

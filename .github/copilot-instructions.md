@@ -4,7 +4,7 @@
 
 ```bash
 cargo build --release
-cargo test --release                      # full suite (226 lib + 44 algebraic + 37 property)
+cargo test --release                      # full suite (232 lib + 44 algebraic + 37 property)
 cargo test --release --lib <test_name>    # single unit test
 cargo test --release --test algebraic_laws <test_name>  # single algebraic law test
 cargo test --release --test property_tests <test_name>  # single property test
@@ -35,7 +35,7 @@ S-expression string
 | `value.rs` | `Value` enum (11 variants: Field, Curve, Polynomial, MLE, MVPoly, SparseUVPoly, SparseMLE, Array, Pair, Bool, Int) + `ArkType` enum (with `ArrayOf(Box<ArkType>)`) + `EvalError` |
 | `eval.rs` | Recursive top-down evaluator. `eval(expr, env) -> Result<Value, EvalError>`. Type-validated arithmetic with explicit type tags. Also: `specialize()` for bound-variable substitution |
 | `analysis.rs` | `TypeAnalysis` (egg `Analysis` trait) — tracks type over-approximation + free variables per e-class. `IndependentOf` condition for guarded rewrites |
-| `rules.rs` | 33 rewrite rules in 9 groups: `add_rules`, `arith_rules`, `sigma_rules`, `guarded_sigma_rules`, `guarded_arith_rules`, `sigma_unroll_rules`, `eval_rules`, `conversion_rules`, `fusion_rules`. Combined via `all_rules()` |
+| `rules.rs` | 39 rewrite rules in 9 groups: `add_rules`, `arith_rules`, `sigma_rules`, `guarded_sigma_rules`, `guarded_arith_rules`, `sigma_unroll_rules`, `eval_rules`, `conversion_rules`, `fusion_rules`. Combined via `all_rules()` |
 | `main.rs` | Demo binary that runs 71 integration tests and writes `results.json` |
 
 ### Key type mappings

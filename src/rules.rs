@@ -214,25 +214,33 @@ pub fn conversion_rules() -> Vec<Rewrite<ArkLang, TypeAnalysis>> {
 /// Stream-fusion rules: eliminate intermediate arrays between for/Σ.
 pub fn fusion_rules() -> Vec<Rewrite<ArkLang, TypeAnalysis>> {
     vec![
-        // Fold over comprehension → direct fold (eliminates intermediate array)
+        // ── Fold/map fusion: eliminate intermediate arrays ──
         rewrite!("sigma-for-fusion";
             "(Σ ?i ?lo ?hi (get ?T (for ?i ?lo ?hi ?body) ?i))" => "(Σ ?i ?lo ?hi ?body)"),
-
-        // Comprehension over comprehension → single comprehension
         rewrite!("for-for-fusion";
             "(for ?i ?lo ?hi (get ?T (for ?i ?lo ?hi ?body) ?i))" => "(for ?i ?lo ?hi ?body)"),
 
-        // Negation floats out of Σ
-        rewrite!("sigma-neg-body";
-            "(Σ ?i ?lo ?hi (neg ?T ?f))" => "(neg ?T (Σ ?i ?lo ?hi ?f))"),
-
-        // Read-after-write elimination
-        rewrite!("get-set-same";
-            "(get ?T (set ?T ?arr ?i ?v) ?i)" => "?v"),
-
-        // Index into comprehension → let substitution
+        // ── Index into comprehension → let substitution ──
         rewrite!("get-for";
             "(get ?T (for ?i ?lo ?n ?body) ?k)" => "(let ?i ?k ?body)"),
+
+        // ── Get/Set laws ──
+        rewrite!("get-set-same";
+            "(get ?T (set ?T ?arr ?i ?v) ?i)" => "?v"),
+        rewrite!("set-set-same";
+            "(set ?T (set ?T ?arr ?i ?v1) ?i ?v2)" => "(set ?T ?arr ?i ?v2)"),
+        rewrite!("set-get-noop";
+            "(set ?T ?arr ?i (get ?T ?arr ?i))" => "?arr"),
+
+        // ── Length laws ──
+        rewrite!("length-set";
+            "(length (set ?T ?arr ?i ?v))" => "(length ?arr)"),
+        rewrite!("length-for";
+            "(length (for ?i ?lo ?hi ?body))" => "(add Int Int ?hi (neg Int ?lo))"),
+
+        // ── Σ body transforms ──
+        rewrite!("sigma-neg-body";
+            "(Σ ?i ?lo ?hi (neg ?T ?f))" => "(neg ?T (Σ ?i ?lo ?hi ?f))"),
     ]
 }
 
@@ -671,10 +679,6 @@ mod tests {
 
     #[test]
     fn test_sigma_for_fusion_dot_pattern() {
-        // The classic dot product fusion:
-        // Σ i 0 n (get Field (for i 0 n (mul Field Field (get Field as i) (get Field bs i))) i)
-        // should fuse to:
-        // Σ i 0 n (mul Field Field (get Field as i) (get Field bs i))
         let rules = fusion_rules();
         assert_merge(
             "(Σ i 0 n (get Field (for i 0 n (mul Field Field (get Field as i) (get Field bs i))) i))",
@@ -682,6 +686,67 @@ mod tests {
             &rules,
             "sigma-for-fusion on dot product pattern",
         );
+    }
+
+    #[test]
+    fn test_set_set_same() {
+        let rules = fusion_rules();
+        assert_merge(
+            "(set Field (set Field arr i v1) i v2)",
+            "(set Field arr i v2)",
+            &rules,
+            "set-set-same: last write wins",
+        );
+    }
+
+    #[test]
+    fn test_set_get_noop() {
+        let rules = fusion_rules();
+        assert_merge(
+            "(set Field arr i (get Field arr i))",
+            "arr",
+            &rules,
+            "set-get-noop: writing back same value is identity",
+        );
+    }
+
+    #[test]
+    fn test_length_set() {
+        let rules = fusion_rules();
+        assert_merge(
+            "(length (set Field arr i v))",
+            "(length arr)",
+            &rules,
+            "length-set: set doesn't change array length",
+        );
+    }
+
+    #[test]
+    fn test_length_for() {
+        let rules = fusion_rules();
+        assert_merge(
+            "(length (for i 0 n body))",
+            "(add Int Int n (neg Int 0))",
+            &rules,
+            "length-for: comprehension length is hi - lo",
+        );
+    }
+
+    #[test]
+    fn test_set_set_same_eval() {
+        let env = empty_env();
+        // (set Field (set Field (array 1 2 3) 1 99) 1 42) should equal (set Field (array 1 2 3) 1 42)
+        let double_set = eval_str("(set Field (set Field (array 1 2 3) 1 99) 1 42)", &env);
+        let single_set = eval_str("(set Field (array 1 2 3) 1 42)", &env);
+        assert_eq!(double_set, single_set);
+    }
+
+    #[test]
+    fn test_length_for_eval() {
+        let env = empty_env();
+        // (length (for i 0 5 i)) should be 5
+        let v = eval_str("(length (for i 0 5 i))", &env);
+        assert_eq!(v, Value::Int(5));
     }
 
 }
