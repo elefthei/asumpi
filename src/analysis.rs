@@ -90,7 +90,8 @@ impl Analysis<ArkLang> for TypeAnalysis {
                 types.insert(ArkType::Int);
             }
 
-            ArkLang::Sigma([idx, lo, hi, body]) | ArkLang::Pi([idx, lo, hi, body]) => {
+            ArkLang::Sigma([idx, lo, hi, body]) | ArkLang::Pi([idx, lo, hi, body])
+                | ArkLang::For([idx, lo, hi, body]) => {
                 free_vars.extend(&cd(lo).free_vars);
                 free_vars.extend(&cd(hi).free_vars);
                 let mut body_vars = cd(body).free_vars.clone();
@@ -160,8 +161,7 @@ impl Analysis<ArkLang> for TypeAnalysis {
             }
 
             // ── Typed Add ──
-            ArkLang::Add([_ta, _tb, a, b]) | ArkLang::Mul([_ta, _tb, a, b])
-                | ArkLang::Dot([_ta, _tb, a, b]) => {
+            ArkLang::Add([_ta, _tb, a, b]) | ArkLang::Mul([_ta, _tb, a, b]) => {
                 free_vars.extend(&cd(a).free_vars);
                 free_vars.extend(&cd(b).free_vars);
                 types.extend(cd(a).types.iter().cloned());

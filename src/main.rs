@@ -933,21 +933,22 @@ fn main() {
     // ═══════════════════════════════════════════════
     // 13. ARRAY ADDITION
     // ═══════════════════════════════════════════════
-    println!("\n--- Array Addition ---");
+    println!("\n--- Array Addition (via for) ---");
 
     {
-        let v = eval_str("(add (arrayof Field) (arrayof Field) (array 1 2 3) (array 4 5 6))", &empty_env()).unwrap().as_array().unwrap();
+        let v = eval_str("(for i 0 3 (add Field Field (get Field (array 1 2 3) i) (get Field (array 4 5 6) i)))", &empty_env()).unwrap().as_array().unwrap();
         let passed = v.len() == 3 && v[0].as_field().unwrap() == Fr::from(5u64)
             && v[1].as_field().unwrap() == Fr::from(7u64) && v[2].as_field().unwrap() == Fr::from(9u64);
-        println!("  array add basic: {}", if passed { "PASS" } else { "FAIL" });
-        results.push(TestResult { category: "array".into(), test_name: "array_add_basic".into(), passed, details: "[1,2,3]+[4,5,6]=[5,7,9]".into(), time_us: 0.0 });
+        println!("  for-based array add: {}", if passed { "PASS" } else { "FAIL" });
+        results.push(TestResult { category: "array".into(), test_name: "for_array_add_basic".into(), passed, details: "for i: [1,2,3][i]+[4,5,6][i] = [5,7,9]".into(), time_us: 0.0 });
     }
 
     {
-        let v = eval_str("(add (arrayof Field) (arrayof Field) (array 1 2) (array 10 20 30))", &empty_env()).unwrap().as_array().unwrap();
-        let passed = v.len() == 3 && v[2].as_field().unwrap() == Fr::from(30u64);
-        println!("  array add diff lengths: {}", if passed { "PASS" } else { "FAIL" });
-        results.push(TestResult { category: "array".into(), test_name: "array_add_diff_len".into(), passed, details: "[1,2]+[10,20,30]=[11,22,30]".into(), time_us: 0.0 });
+        let v = eval_str("(for i 0 2 (mul Field Field (get Field (array 2 3) i) (get Field (array 5 7) i)))", &empty_env()).unwrap().as_array().unwrap();
+        let passed = v.len() == 2 && v[0].as_field().unwrap() == Fr::from(10u64)
+            && v[1].as_field().unwrap() == Fr::from(21u64);
+        println!("  for-based hadamard: {}", if passed { "PASS" } else { "FAIL" });
+        results.push(TestResult { category: "array".into(), test_name: "for_hadamard_basic".into(), passed, details: "for i: [2,3][i]*[5,7][i] = [10,21]".into(), time_us: 0.0 });
     }
 
     // ═══════════════════════════════════════════════
@@ -958,13 +959,12 @@ fn main() {
     let lang_stats = serde_json::json!({
         "node_types": {
             "typed_arithmetic": ["add", "neg", "mul", "inv", "pow", "coerce"],
-            "inner_product": ["dot"],
             "type_tags": ["Field", "Curve", "Int", "Bool", "DensePoly", "SparsePoly", "DenseMLE", "SparseMLE", "MVPoly", "Array", "Pair", "arrayof"],
             "eval_queries": ["eval", "deg", "numvars"],
             "symbolic_constructors": ["ids", "poly", "mle"],
             "poly_specific": ["div", "fix"],
             "tuples": ["pair", "fst", "snd"],
-            "indexed": ["bound", "Σ", "Π"],
+            "indexed": ["bound", "Σ", "Π", "for"],
             "fft": ["domain", "fft", "ifft"],
             "array_ops": ["array", "length", "get", "set"],
             "control": ["let", "if"],
@@ -981,13 +981,12 @@ fn main() {
 
     println!("  Total node types: 43");
     println!("  Typed arithmetic: 6 (add, neg, mul, inv, pow, coerce)");
-    println!("  Inner product: 1 (dot)");
     println!("  Type tags: 12 (Field, Curve, Int, Bool, DensePoly, SparsePoly, DenseMLE, SparseMLE, MVPoly, Array, Pair, arrayof)");
     println!("  Evaluation & queries: 3 (eval, deg, numvars)");
     println!("  Symbolic constructors: 3 (ids, poly, mle)");
     println!("  Poly-specific: 2 (div, fix)");
     println!("  Tuples: 3 (pair, fst, snd)");
-    println!("  Indexed Σ/Π: 3 (bound, Σ, Π)");
+    println!("  Indexed Σ/Π/for: 4 (bound, Σ, Π, for)");
     println!("  FFT/domain: 3 (domain, fft, ifft)");
     println!("  Array: 4 (array, length, get, set)");
     println!("  Control flow: 2 (let, if)");

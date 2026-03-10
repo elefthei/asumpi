@@ -30,10 +30,11 @@ define_language! {
         // ── Domain ──
         "domain" = Domain([Id; 1]),
 
-        // ── Indexed Sum/Product ──
+        // ── Indexed Sum/Product/Comprehension ──
         "bound" = Bound([Id; 2]),
         "Σ"     = Sigma([Id; 4]),
         "Π"     = Pi([Id; 4]),
+        "for"   = For([Id; 4]),
 
         // ── Array ──
         "array" = MkArray(Box<[Id]>),
@@ -65,7 +66,6 @@ define_language! {
         "add"     = Add([Id; 4]),
         "neg"     = Neg([Id; 2]),
         "mul"     = Mul([Id; 4]),
-        "dot"     = Dot([Id; 4]),
         "inv"     = Inv([Id; 2]),
         "pow"     = Pow([Id; 3]),
         "eval"    = Eval([Id; 3]),
