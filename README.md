@@ -11,13 +11,12 @@ arkΣΠ uses S-expression syntax (native egg format). Expressions are parsed int
 | Category | Nodes | Syntax |
 |----------|-------|--------|
 | **Typed Arithmetic** (6) | `add`, `neg`, `mul`, `inv`, `pow`, `coerce` | `(add Field Field x y)`, `(mul Field Curve 3 P)` |
-| **Inner Product** (1) | `dot` | `(dot (arrayof Field) (arrayof Field) a b)` |
 | **Type Tags** (12) | `Field`, `Curve`, `Int`, `Bool`, `DensePoly`, `SparsePoly`, `DenseMLE`, `SparseMLE`, `MVPoly`, `Array`, `Pair`, `arrayof` | `Field`, `(arrayof Field)` |
 | **Evaluation & Queries** (3) | `eval`, `deg`, `numvars` | `(eval DensePoly p x)`, `(deg DensePoly p)` |
 | **Symbolic Constructors** (3) | `ids`, `poly`, `mle` | `(poly (ids x) 5 (mul Field Field 3 (pow Field x 2)))` |
 | **Poly-Specific** (2) | `div`, `fix` | `(div DensePoly p q)` → `Pair(quotient, remainder)` |
 | **Tuples** (3) | `pair`, `fst`, `snd` | `(fst (div DensePoly a b))` |
-| **Indexed Sum/Product** (3) | `bound`, `Σ`, `Π` | `(Σ i 0 N body)` |
+| **Indexed Sum/Product/Comprehension** (4) | `bound`, `Σ`, `Π`, `for` | `(Σ i 0 N body)`, `(for i 0 N body)` |
 | **FFT/Domain** (3) | `domain`, `fft`, `ifft` | `(fft DensePoly 8 p)`, `(domain 4)` |
 | **Array** (4) | `array`, `length`, `get`, `set` | `(array 1 2 3)`, `(get Field arr 1)` |
 | **Control** (2) | `let`, `if` | `(let x 5 (mul Int Int x x))` |
@@ -50,28 +49,8 @@ All arithmetic operations carry explicit type tags. No implicit dispatch — typ
 (mul DensePoly DensePoly p q)                  ;; Polynomial multiplication
 (mul Field Curve 3 P)                          ;; Scalar × Curve (was "scale")
 (mul Curve Field P 3)                          ;; Commutative: same result
-(add (arrayof Field) (arrayof Field) a b)      ;; Element-wise array addition
 (neg DensePoly p)                              ;; Polynomial negation
 (pow Field x 10)                               ;; Field exponentiation
-```
-
-### Dot Product (Inner Product)
-
-Computes `Σ mul(a_i, b_i)`. Works for any element types where `mul` is defined.
-
-```lisp
-(dot (arrayof Field) (arrayof Field) a b)      ;; Σ a_i * b_i → Field
-(dot (arrayof Curve) (arrayof Field) Ps ss)    ;; MSM: Σ s_i * P_i → Curve
-(dot (arrayof DensePoly) (arrayof Field) ps cs) ;; Σ c_i * p_i → DensePoly
-```
-
-### Hadamard (Element-wise) Product
-
-Element-wise multiplication via `(mul (arrayof A) (arrayof B) a b)`.
-
-```lisp
-(mul (arrayof Field) (arrayof Field) a b)      ;; [a_0*b_0, a_1*b_1, ...]
-(mul (arrayof Field) (arrayof Curve) ss Ps)    ;; [s_0*P_0, s_1*P_1, ...]
 ```
 
 ### Type Coercion
@@ -108,7 +87,7 @@ Human-readable syntax for building sparse polynomials from monomial terms:
 - 1 variable → produces `SparseUVPoly`
 - ≥2 variables → produces `MVPoly`
 
-### Indexed Σ/Π Loops
+### Indexed Σ/Π/For Loops
 
 ```lisp
 ;; MSM as Σ: Σ_{i=0}^{N-1} s_i · P_i
@@ -117,8 +96,24 @@ Human-readable syntax for building sparse polynomials from monomial terms:
 ;; Product: Π_{i=0}^{2} a_i
 (Π i 0 3 (get Field (array a b c) i))
 
+;; Array comprehension: [body[i=0], ..., body[i=N-1]]
+(for i 0 N (mul Field Field (get Field as i) (get Field bs i)))
+
 ;; Symbolic bounds for staged computation
 (let N (bound 2 100) (Σ i 0 N body))
+```
+
+Dot products and Hadamard (element-wise) products are expressed compositionally — no dedicated nodes:
+
+```lisp
+;; Dot product: Σ a_i * b_i → Field
+(Σ i 0 n (mul Field Field (get Field as i) (get Field bs i)))
+
+;; Hadamard product: [a_0*b_0, a_1*b_1, ...] → Array
+(for i 0 n (mul Field Field (get Field as i) (get Field bs i)))
+
+;; Element-wise array addition
+(for i 0 n (add Field Field (get Field as i) (get Field bs i)))
 ```
 
 ### FFT / IFFT / Evaluation Domains
@@ -146,11 +141,10 @@ Human-readable syntax for building sparse polynomials from monomial terms:
 (array 1 2 3)                                  ;; construct array
 (get Field arr 1)                              ;; element access with type tag
 (set Field arr 0 v)                            ;; element update with type tag
-(add (arrayof Field) (arrayof Field) a b)      ;; element-wise addition
 (length arr)                                   ;; array length
 ```
 
-## Rewrite Rules (28 total)
+## Rewrite Rules (33 total)
 
 | Category | Function | Count | Examples |
 |----------|----------|-------|---------|
@@ -161,9 +155,31 @@ Human-readable syntax for building sparse polynomials from monomial terms:
 | Σ unrolling | `sigma_unroll_rules` | 2 | `sigma-unroll-2`, `sigma-unroll-3` |
 | Guarded Σ | `guarded_sigma_rules` | 1 | `sigma-fusion-add` |
 | Guarded arith | `guarded_arith_rules` | 2 | `sigma-factor-scalar`, `sigma-factor-mul` |
-| Conversion/structural | `conversion_rules` | 7 | `ifft-fft`, `fst-pair`, `snd-pair`, `pair-eta`, coerce roundtrips |
+| Conversion/structural | `conversion_rules` | 9 | `ifft-fft`, `fst-pair`, `snd-pair`, `pair-eta`, coerce roundtrips |
+| Stream fusion | `fusion_rules` | 5 | `sigma-for-fusion`, `for-for-fusion`, `sigma-neg-body`, `get-set-same`, `get-for` |
 
 Guarded rules use `TypeAnalysis` (egg `Analysis` trait) to track free variables per e-class. Factor extraction only fires when the scalar is independent of the loop variable.
+
+### Stream Fusion
+
+The `fusion_rules` group eliminates intermediate arrays produced by `for` comprehensions, analogous to stream fusion in functional compilers:
+
+```lisp
+;; Σ-for fusion: eliminates intermediate array in Σ(for(...))
+(Σ i 0 n (get T (for i 0 n body) i))  →  (Σ i 0 n body)
+
+;; for-for fusion: collapses nested comprehension
+(for i 0 n (get T (for i 0 n body) i))  →  (for i 0 n body)
+
+;; Negation floats out of Σ
+(Σ i 0 n (neg T f))  →  (neg T (Σ i 0 n f))
+
+;; Read-after-write elimination
+(get T (set T arr i v) i)  →  v
+
+;; Index into comprehension
+(get T (for i 0 n body) k)  →  (let i k body)
+```
 
 `mul` absorbs the former `scale` operation: `(mul Field T scalar obj)` replaces `(scale T scalar obj)`.
 
@@ -171,15 +187,15 @@ Guarded rules use `TypeAnalysis` (egg `Analysis` trait) to track free variables 
 
 ```bash
 cargo build --release
-cargo test --release       # 298 tests (217 lib + 44 algebraic laws + 37 property)
-cargo run --release        # 73 demo tests → results.json
+cargo test --release       # 307 tests (226 lib + 44 algebraic laws + 37 property)
+cargo run --release        # 71 demo tests → results.json
 ```
 
 Always use `--release`; arkworks crypto operations are extremely slow in debug mode.
 
 ## Test Suite
 
-- **217 unit tests**: evaluator, language parsing, rewrite rules, type analysis, guarded conditions, FFT/IFFT, symbolic poly, tuples, coerce, typed ops, dot product, Hadamard product
+- **226 unit tests**: evaluator, language parsing, rewrite rules, type analysis, guarded conditions, FFT/IFFT, symbolic poly, tuples, coerce, typed ops, for comprehension, stream fusion
 - **44 algebraic law tests**: rewrite rule soundness, optimizer round-trip, guard necessity, cross-type laws, FFT roundtrip, div identity
-- **37 property tests**: field/curve/polynomial ring axioms, array theory, Σ-MSM linearity, dot commutativity/linearity/zero/unit, Hadamard commutativity/associativity/unit/zero
-- **73 demo tests**: comprehensive integration coverage
+- **37 property tests**: field/curve/polynomial ring axioms, array theory, Σ-MSM linearity, for comprehension properties
+- **71 demo tests**: comprehensive integration coverage

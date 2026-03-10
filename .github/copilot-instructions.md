@@ -4,11 +4,11 @@
 
 ```bash
 cargo build --release
-cargo test --release                      # full suite (217 lib + 44 algebraic + 37 property)
+cargo test --release                      # full suite (226 lib + 44 algebraic + 37 property)
 cargo test --release --lib <test_name>    # single unit test
 cargo test --release --test algebraic_laws <test_name>  # single algebraic law test
 cargo test --release --test property_tests <test_name>  # single property test
-cargo run --release                       # 73 demo integration tests → results.json
+cargo run --release                       # 71 demo integration tests → results.json
 ```
 
 Always use `--release`; arkworks crypto operations are extremely slow in debug mode.
@@ -31,12 +31,12 @@ S-expression string
 
 | Module | Role |
 |--------|------|
-| `language.rs` | `ArkLang` enum via `define_language!` — 43 node types (typed arithmetic, dot product, type tags, coerce, polynomials, Σ/Π loops, FFT, arrays, control flow) |
+| `language.rs` | `ArkLang` enum via `define_language!` — 43 node types (typed arithmetic, type tags, coerce, polynomials, Σ/Π/for loops, FFT, arrays, control flow) |
 | `value.rs` | `Value` enum (11 variants: Field, Curve, Polynomial, MLE, MVPoly, SparseUVPoly, SparseMLE, Array, Pair, Bool, Int) + `ArkType` enum (with `ArrayOf(Box<ArkType>)`) + `EvalError` |
 | `eval.rs` | Recursive top-down evaluator. `eval(expr, env) -> Result<Value, EvalError>`. Type-validated arithmetic with explicit type tags. Also: `specialize()` for bound-variable substitution |
 | `analysis.rs` | `TypeAnalysis` (egg `Analysis` trait) — tracks type over-approximation + free variables per e-class. `IndependentOf` condition for guarded rewrites |
-| `rules.rs` | 28 rewrite rules in 8 groups: `add_rules`, `arith_rules`, `sigma_rules`, `guarded_sigma_rules`, `guarded_arith_rules`, `sigma_unroll_rules`, `eval_rules`, `conversion_rules`. Combined via `all_rules()` |
-| `main.rs` | Demo binary that runs 73 integration tests and writes `results.json` |
+| `rules.rs` | 33 rewrite rules in 9 groups: `add_rules`, `arith_rules`, `sigma_rules`, `guarded_sigma_rules`, `guarded_arith_rules`, `sigma_unroll_rules`, `eval_rules`, `conversion_rules`, `fusion_rules`. Combined via `all_rules()` |
+| `main.rs` | Demo binary that runs 71 integration tests and writes `results.json` |
 
 ### Key type mappings
 
@@ -51,7 +51,7 @@ All runtime types are backed by arkworks (BLS12-381):
 ## Conventions
 
 ### Explicitly typed arithmetic
-All arithmetic ops (`add`, `mul`, `neg`, etc.) carry explicit type tags: `(add Field Field a b)`, `(mul DensePoly DensePoly p q)`. Scalar multiplication uses `(mul Field T scalar obj)` — `scale` was absorbed into `mul`. `dot` computes inner products. Parameterized types like `(arrayof Field)` are supported for array operations. The evaluator validates types at runtime via `validate_type()`.
+All arithmetic ops (`add`, `mul`, `neg`, etc.) carry explicit type tags: `(add Field Field a b)`, `(mul DensePoly DensePoly p q)`. Scalar multiplication uses `(mul Field T scalar obj)` — `scale` was absorbed into `mul`. Dot products and Hadamard products are expressed compositionally via `Σ` and `for` (no dedicated nodes). Parameterized types like `(arrayof Field)` are supported for array operations. The evaluator validates types at runtime via `validate_type()`.
 
 ### Type coercion
 No implicit coercions except Int→Field (in `validate_type`). All other conversions require explicit `(coerce Src Dst val)`. The coerce lattice supports: identity, Int/Field→polynomial embedding, dense↔sparse representation, MLE↔poly domain changes, Array→DensePoly (coefficients), Array→DenseMLE (evaluations). Scalar multiplication uses `(mul Field T scalar obj)` — `scale` was absorbed into `mul`.
@@ -77,5 +77,8 @@ Use `int_to_fr(n: i64)` from `value.rs` which handles negative values via field 
 ### Test helpers
 Shared test utilities live in `tests/common/mod.rs`: `fr(u64)` for field elements, `eval_str(&str, &Env)` for parse+eval, `env_with_fields(...)` for building environments. Property tests use `proptest` with arkworks types generated via seeded RNG.
 
+### Stream fusion
+The `fusion_rules` group (5 rules) eliminates intermediate arrays produced by `for` comprehensions. Key rewrites: `sigma-for-fusion` and `for-for-fusion` fuse Σ/for over `(get T (for ...) i)` into the body directly; `get-for` indexes into a comprehension via `let`; `get-set-same` is read-after-write elimination; `sigma-neg-body` floats negation out of Σ.
+
 ### Rule naming
-Rewrite rule string identifiers use kebab-case (e.g., `"sigma-factor-scale"`, `"add-comm"`, `"ifft-fft"`).
+Rewrite rule string identifiers use kebab-case (e.g., `"sigma-factor-scale"`, `"add-comm"`, `"ifft-fft"`, `"sigma-for-fusion"`).
