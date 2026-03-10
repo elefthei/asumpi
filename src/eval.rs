@@ -150,6 +150,25 @@ fn eval_id(expr: &RecExpr<ArkLang>, id: Id, env: &Env) -> Result<Value, EvalErro
             Ok(acc.unwrap_or(Value::Int(1)))
         }
 
+        // ── Array Comprehension ──
+        ArkLang::For([idx, start, end, body]) => {
+            let idx_sym = match &expr[*idx] {
+                ArkLang::Symbol(s) => *s,
+                _ => return Err(EvalError::TypeError(
+                    "for: first argument must be a variable name".into(),
+                )),
+            };
+            let start_val = eval_id(expr, *start, env)?.as_int()?;
+            let end_val = eval_id(expr, *end, env)?.as_int()?;
+            let mut results = Vec::new();
+            for i in start_val..end_val {
+                let mut new_env = env.clone();
+                new_env.insert(idx_sym, Value::Int(i));
+                results.push(eval_id(expr, *body, &new_env)?);
+            }
+            Ok(Value::Array(results))
+        }
+
         // ── Array Operations ──
         ArkLang::MkArray(children) => {
             let vals: Vec<Value> = children
@@ -235,17 +254,6 @@ fn eval_id(expr: &RecExpr<ArkLang>, id: Id, env: &Env) -> Result<Value, EvalErro
             validate_type(&va, &ty_a)?;
             validate_type(&vb, &ty_b)?;
             typed_mul(ty_a, ty_b, va, vb)
-        }
-
-        // ── Dot Product ──
-        ArkLang::Dot([ta, tb, a, b]) => {
-            let ty_a = resolve_type_tag(expr, *ta)?;
-            let ty_b = resolve_type_tag(expr, *tb)?;
-            let va = eval_id(expr, *a, env)?;
-            let vb = eval_id(expr, *b, env)?;
-            validate_type(&va, &ty_a)?;
-            validate_type(&vb, &ty_b)?;
-            typed_dot(ty_a, ty_b, va, vb)
         }
 
         // ── Typed Inv ──
@@ -774,18 +782,6 @@ fn typed_add(ty_a: ArkType, ty_b: ArkType, va: Value, vb: Value) -> Result<Value
             let pb = vb.as_mvpoly()?;
             Ok(Value::MVPoly(&pa + &pb))
         }
-        (ArrayOf(_), ArrayOf(_)) => {
-            let arr_a = va.as_array()?;
-            let arr_b = vb.as_array()?;
-            let len = arr_a.len().max(arr_b.len());
-            let mut result = Vec::with_capacity(len);
-            for i in 0..len {
-                let fa = if i < arr_a.len() { arr_a[i].as_field()? } else { Fr::zero() };
-                let fb = if i < arr_b.len() { arr_b[i].as_field()? } else { Fr::zero() };
-                result.push(Value::Field(fa + fb));
-            }
-            Ok(Value::Array(result))
-        }
         _ => Err(EvalError::TypeError(format!(
             "add: incompatible types {:?} and {:?}", ty_a, ty_b
         ))),
@@ -908,68 +904,8 @@ fn typed_mul(ty_a: ArkType, ty_b: ArkType, va: Value, vb: Value) -> Result<Value
         }
         (Int, Field) => Ok(Value::Field(int_to_fr(va.as_int()?) * vb.as_field()?)),
 
-        // Hadamard (element-wise) product for arrays
-        (ArrayOf(inner_a), ArrayOf(inner_b)) => {
-            let arr_a = va.as_array()?;
-            let arr_b = vb.as_array()?;
-            if arr_a.len() != arr_b.len() {
-                return Err(EvalError::TypeError(format!(
-                    "mul: array length mismatch: {} vs {}", arr_a.len(), arr_b.len()
-                )));
-            }
-            let results: Vec<Value> = arr_a.into_iter().zip(arr_b.into_iter())
-                .map(|(a, b)| typed_mul(inner_a.as_ref().clone(), inner_b.as_ref().clone(), a, b))
-                .collect::<Result<_, _>>()?;
-            Ok(Value::Array(results))
-        }
-
         _ => Err(EvalError::TypeError(format!(
             "mul: incompatible types {:?} and {:?}", ty_a, ty_b
-        ))),
-    }
-}
-
-/// Dot product: inner product of two arrays, accumulating via typed_mul + typed_add.
-/// Works for any (ArrayOf(A), ArrayOf(B)) where typed_mul(A, B) is defined.
-fn typed_dot(ty_a: ArkType, ty_b: ArkType, va: Value, vb: Value) -> Result<Value, EvalError> {
-    let (inner_a, inner_b) = match (&ty_a, &ty_b) {
-        (ArkType::ArrayOf(a), ArkType::ArrayOf(b)) => (a.as_ref().clone(), b.as_ref().clone()),
-        _ => return Err(EvalError::TypeError(format!(
-            "dot: expected array types, got {:?} and {:?}", ty_a, ty_b
-        ))),
-    };
-    let arr_a = va.as_array()?;
-    let arr_b = vb.as_array()?;
-    if arr_a.len() != arr_b.len() {
-        return Err(EvalError::TypeError(format!(
-            "dot: array length mismatch: {} vs {}", arr_a.len(), arr_b.len()
-        )));
-    }
-    if arr_a.is_empty() {
-        return Err(EvalError::TypeError("dot: empty arrays".into()));
-    }
-    let mut iter = arr_a.into_iter().zip(arr_b.into_iter());
-    let (a0, b0) = iter.next().unwrap();
-    let result_type = result_type_of_mul(&inner_a, &inner_b)?;
-    let mut acc = typed_mul(inner_a.clone(), inner_b.clone(), a0, b0)?;
-    for (ai, bi) in iter {
-        let prod = typed_mul(inner_a.clone(), inner_b.clone(), ai, bi)?;
-        acc = typed_add(result_type.clone(), result_type.clone(), acc, prod)?;
-    }
-    Ok(acc)
-}
-
-/// Determine the result type of mul(A, B).
-fn result_type_of_mul(ty_a: &ArkType, ty_b: &ArkType) -> Result<ArkType, EvalError> {
-    use ArkType::*;
-    match (ty_a, ty_b) {
-        (Field, Field) => Ok(Field),
-        (Int, Int) => Ok(Int),
-        (DensePoly, DensePoly) => Ok(DensePoly),
-        (Field, t) | (Int, t) => Ok(t.clone()),
-        (t, Field) | (t, Int) => Ok(t.clone()),
-        _ => Err(EvalError::TypeError(format!(
-            "dot: cannot determine result type for mul({:?}, {:?})", ty_a, ty_b
         ))),
     }
 }
@@ -1959,12 +1895,13 @@ mod tests {
         assert_eq!(a_val, q_val * b_val + r_val);
     }
 
-    // ── Array Addition Tests ──
+    // ── Array Addition via for Tests ──
 
     #[test]
     fn test_aadd_basic() {
         let env = empty_env();
-        let v = eval_str("(add (arrayof Field) (arrayof Field) (array 1 2 3) (array 4 5 6))", &env).unwrap().as_array().unwrap();
+        // [1,2,3] + [4,5,6] = [5,7,9]
+        let v = eval_str("(for i 0 3 (add Field Field (get Field (array 1 2 3) i) (get Field (array 4 5 6) i)))", &env).unwrap().as_array().unwrap();
         assert_eq!(v.len(), 3);
         assert_eq!(v[0].as_field().unwrap(), Fr::from(5u64));
         assert_eq!(v[1].as_field().unwrap(), Fr::from(7u64));
@@ -1972,21 +1909,11 @@ mod tests {
     }
 
     #[test]
-    fn test_aadd_different_lengths() {
-        let env = empty_env();
-        let v = eval_str("(add (arrayof Field) (arrayof Field) (array 1 2) (array 10 20 30))", &env).unwrap().as_array().unwrap();
-        assert_eq!(v.len(), 3);
-        assert_eq!(v[0].as_field().unwrap(), Fr::from(11u64));
-        assert_eq!(v[1].as_field().unwrap(), Fr::from(22u64));
-        assert_eq!(v[2].as_field().unwrap(), Fr::from(30u64));
-    }
-
-    #[test]
     fn test_aadd_empty() {
         let env = empty_env();
-        let v = eval_str("(add (arrayof Field) (arrayof Field) (array) (array 1 2))", &env).unwrap().as_array().unwrap();
-        assert_eq!(v.len(), 2);
-        assert_eq!(v[0].as_field().unwrap(), Fr::from(1u64));
+        // (for i 0 0 ...) → empty array
+        let v = eval_str("(for i 0 0 (add Field Field (get Field (array) i) (get Field (array) i)))", &env).unwrap().as_array().unwrap();
+        assert_eq!(v.len(), 0);
     }
 
     // ═══════════════════════════════════════════════
@@ -2582,11 +2509,11 @@ mod tests {
         assert_eq!(arr[1], Value::Field(fr(20)));
     }
 
-    // ── AAdd ──
+    // ── AAdd via for ──
     #[test]
     fn test_taadd() {
         let env = empty_env();
-        let v = eval_str("(add (arrayof Field) (arrayof Field) (array (coerce Int Field 1) (coerce Int Field 2)) (array (coerce Int Field 10) (coerce Int Field 20)))", &env).unwrap();
+        let v = eval_str("(for i 0 2 (add Field Field (get Field (array (coerce Int Field 1) (coerce Int Field 2)) i) (get Field (array (coerce Int Field 10) (coerce Int Field 20)) i)))", &env).unwrap();
         let arr = v.as_array().unwrap();
         assert_eq!(arr[0], Value::Field(fr(11)));
         assert_eq!(arr[1], Value::Field(fr(22)));
@@ -2615,22 +2542,22 @@ mod tests {
     }
 
     // ═══════════════════════════════════════════════
-    // Dot product tests
+    // Dot product via Σ tests
     // ═══════════════════════════════════════════════
 
     #[test]
-    fn test_dot_field_field() {
+    fn test_sigma_dot_field_field() {
         let env = empty_env();
         // [1,2,3] · [4,5,6] = 1*4 + 2*5 + 3*6 = 32
         let v = eval_str(
-            "(dot (arrayof Field) (arrayof Field) (array 1 2 3) (array 4 5 6))",
+            "(Σ i 0 3 (mul Field Field (get Field (array 1 2 3) i) (get Field (array 4 5 6) i)))",
             &env
         ).unwrap();
         assert_eq!(v, Value::Field(fr(32)));
     }
 
     #[test]
-    fn test_dot_curve_field() {
+    fn test_sigma_dot_curve_field() {
         let mut rng = ark_std::rand::rngs::StdRng::seed_from_u64(42);
         let p0 = G1Projective::rand(&mut rng);
         let p1 = G1Projective::rand(&mut rng);
@@ -2639,7 +2566,7 @@ mod tests {
         env.insert("P1".into(), Value::Curve(p1));
         // [P0, P1] · [3, 5] = 3*P0 + 5*P1
         let v = eval_str(
-            "(dot (arrayof Curve) (arrayof Field) (array P0 P1) (array 3 5))",
+            "(Σ i 0 2 (mul Field Curve (get Field (array 3 5) i) (get Curve (array P0 P1) i)))",
             &env
         ).unwrap();
         let expected = p0 * Fr::from(3u64) + p1 * Fr::from(5u64);
@@ -2647,46 +2574,39 @@ mod tests {
     }
 
     #[test]
-    fn test_dot_dense_poly_field() {
+    fn test_sigma_dot_dense_poly_field() {
         let env = empty_env();
         // [p1, p2] · [2, 3] where p1=(1+x), p2=(1+x²)
         // = 2*(1+x) + 3*(1+x²) = (2+2x) + (3+3x²) = 5 + 2x + 3x²
         // eval at x=1: 5+2+3 = 10
         let v = eval_str(
-            "(eval DensePoly (dot (arrayof DensePoly) (arrayof Field) (array (coerce (arrayof Field) DensePoly (array 1 1)) (coerce (arrayof Field) DensePoly (array 1 0 1))) (array 2 3)) 1)",
+            "(eval DensePoly (Σ i 0 2 (mul Field DensePoly (get Field (array 2 3) i) (get DensePoly (array (coerce (arrayof Field) DensePoly (array 1 1)) (coerce (arrayof Field) DensePoly (array 1 0 1))) i))) 1)",
             &env
         ).unwrap();
         assert_eq!(v, Value::Field(fr(10)));
     }
 
     #[test]
-    fn test_dot_empty_arrays() {
+    fn test_sigma_dot_empty() {
         let env = empty_env();
-        assert!(eval_str(
-            "(dot (arrayof Field) (arrayof Field) (array) (array))",
+        // Σ over empty range returns identity (Int(0))
+        let v = eval_str(
+            "(Σ i 0 0 (mul Field Field (get Field (array) i) (get Field (array) i)))",
             &env
-        ).is_err());
-    }
-
-    #[test]
-    fn test_dot_length_mismatch() {
-        let env = empty_env();
-        assert!(eval_str(
-            "(dot (arrayof Field) (arrayof Field) (array 1 2) (array 3))",
-            &env
-        ).is_err());
+        ).unwrap();
+        assert_eq!(v, Value::Int(0));
     }
 
     // ═══════════════════════════════════════════════
-    // Hadamard (element-wise) product tests
+    // Element-wise (Hadamard) product via for tests
     // ═══════════════════════════════════════════════
 
     #[test]
-    fn test_hadamard_field_field() {
+    fn test_for_hadamard_field_field() {
         let env = empty_env();
         // [2,3,4] ⊙ [5,6,7] = [10, 18, 28]
         let v = eval_str(
-            "(mul (arrayof Field) (arrayof Field) (array 2 3 4) (array 5 6 7))",
+            "(for i 0 3 (mul Field Field (get Field (array 2 3 4) i) (get Field (array 5 6 7) i)))",
             &env
         ).unwrap();
         let arr = v.as_array().unwrap();
@@ -2696,7 +2616,7 @@ mod tests {
     }
 
     #[test]
-    fn test_hadamard_field_curve() {
+    fn test_for_hadamard_field_curve() {
         let mut rng = ark_std::rand::rngs::StdRng::seed_from_u64(42);
         let p0 = G1Projective::rand(&mut rng);
         let p1 = G1Projective::rand(&mut rng);
@@ -2705,7 +2625,7 @@ mod tests {
         env.insert("P1".into(), Value::Curve(p1));
         // [3, 5] ⊙ [P0, P1] = [3*P0, 5*P1]
         let v = eval_str(
-            "(mul (arrayof Field) (arrayof Curve) (array 3 5) (array P0 P1))",
+            "(for i 0 2 (mul Field Curve (get Field (array 3 5) i) (get Curve (array P0 P1) i)))",
             &env
         ).unwrap();
         let arr = v.as_array().unwrap();
@@ -2713,12 +2633,37 @@ mod tests {
         assert_eq!(arr[1].as_curve().unwrap(), p1 * Fr::from(5u64));
     }
 
+    // ═══════════════════════════════════════════════
+    // for comprehension tests
+    // ═══════════════════════════════════════════════
+
     #[test]
-    fn test_hadamard_length_mismatch() {
+    fn test_for_basic() {
         let env = empty_env();
-        assert!(eval_str(
-            "(mul (arrayof Field) (arrayof Field) (array 1 2 3) (array 4 5))",
-            &env
-        ).is_err());
+        // (for i 0 3 (mul Field Field i i)) → [0, 1, 4]
+        let v = eval_str("(for i 0 3 (mul Field Field i i))", &env).unwrap();
+        let arr = v.as_array().unwrap();
+        assert_eq!(arr[0], Value::Field(fr(0)));
+        assert_eq!(arr[1], Value::Field(fr(1)));
+        assert_eq!(arr[2], Value::Field(fr(4)));
+    }
+
+    #[test]
+    fn test_for_empty() {
+        let env = empty_env();
+        // (for i 0 0 i) → []
+        let v = eval_str("(for i 0 0 i)", &env).unwrap();
+        let arr = v.as_array().unwrap();
+        assert!(arr.is_empty());
+    }
+
+    #[test]
+    fn test_for_with_get() {
+        let env = empty_env();
+        // (for i 0 2 (get Field (array 10 20) i)) → [10, 20]
+        let v = eval_str("(for i 0 2 (get Field (array 10 20) i))", &env).unwrap();
+        let arr = v.as_array().unwrap();
+        assert_eq!(arr[0], Value::Field(fr(10)));
+        assert_eq!(arr[1], Value::Field(fr(20)));
     }
 }

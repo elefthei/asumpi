@@ -421,114 +421,114 @@ proptest! {
     }
 
     // ═══════════════════════════════════════════════
-    // Dot product properties
+    // Dot product (via Σ) properties
     // ═══════════════════════════════════════════════
 
-    // Commutativity: dot(As, Bs) = dot(Bs, As) for Field×Field
+    // Commutativity: Σ a_i*b_i = Σ b_i*a_i
     #[test]
-    fn dot_commutativity(a0 in any::<u64>(), a1 in any::<u64>(), b0 in any::<u64>(), b1 in any::<u64>()) {
+    fn sigma_dot_commutativity(a0 in any::<u64>(), a1 in any::<u64>(), b0 in any::<u64>(), b1 in any::<u64>()) {
         let env = env_with_fields(&[
             ("a0", fr_from_u64(a0)), ("a1", fr_from_u64(a1)),
             ("b0", fr_from_u64(b0)), ("b1", fr_from_u64(b1)),
         ]);
-        let lhs = eval_str("(dot (arrayof Field) (arrayof Field) (array a0 a1) (array b0 b1))", &env).as_field().unwrap();
-        let rhs = eval_str("(dot (arrayof Field) (arrayof Field) (array b0 b1) (array a0 a1))", &env).as_field().unwrap();
+        let lhs = eval_str("(Σ i 0 2 (mul Field Field (get Field (array a0 a1) i) (get Field (array b0 b1) i)))", &env).as_field().unwrap();
+        let rhs = eval_str("(Σ i 0 2 (mul Field Field (get Field (array b0 b1) i) (get Field (array a0 a1) i)))", &env).as_field().unwrap();
         prop_assert_eq!(lhs, rhs);
     }
 
-    // Linearity: dot(α·As, Bs) = α·dot(As, Bs)
+    // Linearity: Σ (c*a_i)*b_i = c * Σ a_i*b_i
     #[test]
-    fn dot_linearity(c in any::<u64>(), a0 in any::<u64>(), a1 in any::<u64>(), b0 in any::<u64>(), b1 in any::<u64>()) {
+    fn sigma_dot_linearity(c in any::<u64>(), a0 in any::<u64>(), a1 in any::<u64>(), b0 in any::<u64>(), b1 in any::<u64>()) {
         let env = env_with_fields(&[
             ("c", fr_from_u64(c)),
             ("a0", fr_from_u64(a0)), ("a1", fr_from_u64(a1)),
             ("b0", fr_from_u64(b0)), ("b1", fr_from_u64(b1)),
         ]);
         let lhs = eval_str(
-            "(dot (arrayof Field) (arrayof Field) (mul (arrayof Field) (arrayof Field) (array c c) (array a0 a1)) (array b0 b1))",
+            "(Σ i 0 2 (mul Field Field (mul Field Field c (get Field (array a0 a1) i)) (get Field (array b0 b1) i)))",
             &env
         ).as_field().unwrap();
         let rhs = eval_str(
-            "(mul Field Field c (dot (arrayof Field) (arrayof Field) (array a0 a1) (array b0 b1)))",
+            "(mul Field Field c (Σ i 0 2 (mul Field Field (get Field (array a0 a1) i) (get Field (array b0 b1) i))))",
             &env
         ).as_field().unwrap();
         prop_assert_eq!(lhs, rhs);
     }
 
-    // Zero: dot(zeros, As) = 0
+    // Zero: Σ 0*a_i = 0
     #[test]
-    fn dot_zero(a0 in any::<u64>(), a1 in any::<u64>()) {
+    fn sigma_dot_zero(a0 in any::<u64>(), a1 in any::<u64>()) {
         let env = env_with_fields(&[
             ("a0", fr_from_u64(a0)), ("a1", fr_from_u64(a1)),
         ]);
-        let v = eval_str("(dot (arrayof Field) (arrayof Field) (array 0 0) (array a0 a1))", &env).as_field().unwrap();
+        let v = eval_str("(Σ i 0 2 (mul Field Field (get Field (array 0 0) i) (get Field (array a0 a1) i)))", &env).as_field().unwrap();
         prop_assert!(v.is_zero());
     }
 
-    // Unit: dot(ones, As) = Σ a_i
+    // Unit: Σ 1*a_i = Σ a_i
     #[test]
-    fn dot_unit(a0 in any::<u64>(), a1 in any::<u64>(), a2 in any::<u64>()) {
+    fn sigma_dot_unit(a0 in any::<u64>(), a1 in any::<u64>(), a2 in any::<u64>()) {
         let env = env_with_fields(&[
             ("a0", fr_from_u64(a0)), ("a1", fr_from_u64(a1)), ("a2", fr_from_u64(a2)),
         ]);
-        let dot_val = eval_str("(dot (arrayof Field) (arrayof Field) (array 1 1 1) (array a0 a1 a2))", &env).as_field().unwrap();
+        let dot_val = eval_str("(Σ i 0 3 (mul Field Field (get Field (array 1 1 1) i) (get Field (array a0 a1 a2) i)))", &env).as_field().unwrap();
         let sum_val = eval_str("(add Field Field a0 (add Field Field a1 a2))", &env).as_field().unwrap();
         prop_assert_eq!(dot_val, sum_val);
     }
 
     // ═══════════════════════════════════════════════
-    // Hadamard (element-wise) product properties
+    // Hadamard (element-wise) product (via for) properties
     // ═══════════════════════════════════════════════
 
-    // Commutativity: hadamard(As, Bs) = hadamard(Bs, As) for Field×Field
+    // Commutativity: for(a_i*b_i) = for(b_i*a_i)
     #[test]
-    fn hadamard_commutativity(a0 in any::<u64>(), a1 in any::<u64>(), b0 in any::<u64>(), b1 in any::<u64>()) {
+    fn for_hadamard_commutativity(a0 in any::<u64>(), a1 in any::<u64>(), b0 in any::<u64>(), b1 in any::<u64>()) {
         let env = env_with_fields(&[
             ("a0", fr_from_u64(a0)), ("a1", fr_from_u64(a1)),
             ("b0", fr_from_u64(b0)), ("b1", fr_from_u64(b1)),
         ]);
-        let lhs = eval_str("(mul (arrayof Field) (arrayof Field) (array a0 a1) (array b0 b1))", &env).as_array().unwrap();
-        let rhs = eval_str("(mul (arrayof Field) (arrayof Field) (array b0 b1) (array a0 a1))", &env).as_array().unwrap();
+        let lhs = eval_str("(for i 0 2 (mul Field Field (get Field (array a0 a1) i) (get Field (array b0 b1) i)))", &env).as_array().unwrap();
+        let rhs = eval_str("(for i 0 2 (mul Field Field (get Field (array b0 b1) i) (get Field (array a0 a1) i)))", &env).as_array().unwrap();
         prop_assert_eq!(lhs, rhs);
     }
 
-    // Associativity: hadamard(As, hadamard(Bs, Cs)) = hadamard(hadamard(As, Bs), Cs)
+    // Associativity: for(a_i * for(b_i*c_i)[i]) = for(for(a_i*b_i)[i] * c_i)
     #[test]
-    fn hadamard_associativity(a0 in any::<u64>(), a1 in any::<u64>(), b0 in any::<u64>(), b1 in any::<u64>(), c0 in any::<u64>(), c1 in any::<u64>()) {
+    fn for_hadamard_associativity(a0 in any::<u64>(), a1 in any::<u64>(), b0 in any::<u64>(), b1 in any::<u64>(), c0 in any::<u64>(), c1 in any::<u64>()) {
         let env = env_with_fields(&[
             ("a0", fr_from_u64(a0)), ("a1", fr_from_u64(a1)),
             ("b0", fr_from_u64(b0)), ("b1", fr_from_u64(b1)),
             ("c0", fr_from_u64(c0)), ("c1", fr_from_u64(c1)),
         ]);
         let lhs = eval_str(
-            "(mul (arrayof Field) (arrayof Field) (array a0 a1) (mul (arrayof Field) (arrayof Field) (array b0 b1) (array c0 c1)))",
+            "(for i 0 2 (mul Field Field (get Field (array a0 a1) i) (get Field (for j 0 2 (mul Field Field (get Field (array b0 b1) j) (get Field (array c0 c1) j))) i)))",
             &env
         ).as_array().unwrap();
         let rhs = eval_str(
-            "(mul (arrayof Field) (arrayof Field) (mul (arrayof Field) (arrayof Field) (array a0 a1) (array b0 b1)) (array c0 c1))",
+            "(for i 0 2 (mul Field Field (get Field (for j 0 2 (mul Field Field (get Field (array a0 a1) j) (get Field (array b0 b1) j))) i) (get Field (array c0 c1) i)))",
             &env
         ).as_array().unwrap();
         prop_assert_eq!(lhs, rhs);
     }
 
-    // Unit: hadamard(ones, As) = As
+    // Unit: for(1*a_i) = [a0, a1, a2]
     #[test]
-    fn hadamard_unit(a0 in any::<u64>(), a1 in any::<u64>(), a2 in any::<u64>()) {
+    fn for_hadamard_unit(a0 in any::<u64>(), a1 in any::<u64>(), a2 in any::<u64>()) {
         let env = env_with_fields(&[
             ("a0", fr_from_u64(a0)), ("a1", fr_from_u64(a1)), ("a2", fr_from_u64(a2)),
         ]);
-        let result = eval_str("(mul (arrayof Field) (arrayof Field) (array 1 1 1) (array a0 a1 a2))", &env).as_array().unwrap();
+        let result = eval_str("(for i 0 3 (mul Field Field (get Field (array 1 1 1) i) (get Field (array a0 a1 a2) i)))", &env).as_array().unwrap();
         let original = eval_str("(array a0 a1 a2)", &env).as_array().unwrap();
         prop_assert_eq!(result, original);
     }
 
-    // Zero: hadamard(zeros, As) = zeros
+    // Zero: for(0*a_i) = [0, 0]
     #[test]
-    fn hadamard_zero(a0 in any::<u64>(), a1 in any::<u64>()) {
+    fn for_hadamard_zero(a0 in any::<u64>(), a1 in any::<u64>()) {
         let env = env_with_fields(&[
             ("a0", fr_from_u64(a0)), ("a1", fr_from_u64(a1)),
         ]);
-        let result = eval_str("(mul (arrayof Field) (arrayof Field) (array 0 0) (array a0 a1))", &env).as_array().unwrap();
+        let result = eval_str("(for i 0 2 (mul Field Field (get Field (array 0 0) i) (get Field (array a0 a1) i)))", &env).as_array().unwrap();
         for v in result {
             prop_assert!(v.as_field().unwrap().is_zero());
         }

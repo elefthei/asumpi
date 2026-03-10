@@ -556,12 +556,12 @@ proptest! {
         prop_assert_eq!(a, q * b + r);
     }
 
-    // aadd commutativity
+    // for-based array add commutativity
     #[test]
-    fn aadd_commutative(a0 in any::<u64>(), a1 in any::<u64>(), b0 in any::<u64>(), b1 in any::<u64>(), b2 in any::<u64>()) {
-        let env = env_with_fields(&[("a0", fr(a0)), ("a1", fr(a1)), ("b0", fr(b0)), ("b1", fr(b1)), ("b2", fr(b2))]);
-        let lhs = eval_str("(add (arrayof Field) (arrayof Field) (array a0 a1) (array b0 b1 b2))", &env).as_array().unwrap();
-        let rhs = eval_str("(add (arrayof Field) (arrayof Field) (array b0 b1 b2) (array a0 a1))", &env).as_array().unwrap();
+    fn for_aadd_commutative(a0 in any::<u64>(), a1 in any::<u64>(), b0 in any::<u64>(), b1 in any::<u64>()) {
+        let env = env_with_fields(&[("a0", fr(a0)), ("a1", fr(a1)), ("b0", fr(b0)), ("b1", fr(b1))]);
+        let lhs = eval_str("(for i 0 2 (add Field Field (get Field (array a0 a1) i) (get Field (array b0 b1) i)))", &env).as_array().unwrap();
+        let rhs = eval_str("(for i 0 2 (add Field Field (get Field (array b0 b1) i) (get Field (array a0 a1) i)))", &env).as_array().unwrap();
         prop_assert_eq!(lhs, rhs);
     }
 
