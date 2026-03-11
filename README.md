@@ -1,12 +1,12 @@
 # arkΣΠ — Algebraic Language & Runtime
 
-A 43-node algebraic intermediate language with explicitly-typed arithmetic, indexed Σ/Π loops, FFT/IFFT, tuples, and explicit type coercions over BLS12-381 field/curve/polynomial types, optimized via egg's equality saturation with type-analysis-guarded rewrite rules.
+A 45-node algebraic intermediate language with explicitly-typed arithmetic, indexed Σ/Π loops, FFT/IFFT, tuples, and explicit type coercions over BLS12-381 field/curve/polynomial types, optimized via egg's equality saturation with type-analysis-guarded rewrite rules.
 
 ## Language Overview
 
 arkΣΠ uses S-expression syntax (native egg format). Expressions are parsed into `RecExpr<ArkLang>` and evaluated by a type-validated runtime interpreter.
 
-### Node Types (43 total)
+### Node Types (45 total)
 
 | Category | Nodes | Syntax |
 |----------|-------|--------|
@@ -194,7 +194,7 @@ The `fusion_rules` group eliminates intermediate arrays produced by `for` compre
 ```bash
 cargo build --release
 cargo test --release       # 313 tests (232 lib + 44 algebraic laws + 37 property)
-cargo run --release        # 71 demo tests → results.json
+cargo run --release        # 73 demo tests → results.json
 ```
 
 Always use `--release`; arkworks crypto operations are extremely slow in debug mode.
@@ -204,4 +204,4 @@ Always use `--release`; arkworks crypto operations are extremely slow in debug m
 - **232 unit tests**: evaluator, language parsing, rewrite rules, type analysis, guarded conditions, FFT/IFFT, symbolic poly, tuples, coerce, typed ops, for comprehension, stream fusion
 - **44 algebraic law tests**: rewrite rule soundness, optimizer round-trip, guard necessity, cross-type laws, FFT roundtrip, div identity
 - **37 property tests**: field/curve/polynomial ring axioms, array theory, Σ-MSM linearity, for comprehension properties
-- **71 demo tests**: comprehensive integration coverage
+- **73 demo tests**: comprehensive integration coverage
