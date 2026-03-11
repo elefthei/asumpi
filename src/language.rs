@@ -20,7 +20,7 @@ define_language! {
         "mle"       = Mle(Box<[Id]>),
 
         // ── Poly-Specific ──
-        "fix"  = Fix([Id; 2]),
+        "fix"  = Fix([Id; 3]),
 
         // ── Tuples ──
         "pair" = Pair([Id; 2]),

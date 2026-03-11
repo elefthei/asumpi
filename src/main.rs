@@ -599,7 +599,7 @@ fn main() {
 
     {
         let v = eval_str(
-            "(eval DenseMLE (fix (coerce (arrayof Field) DenseMLE (array 1 2 3 4)) (array 1)) (array 0))",
+            "(eval DenseMLE (fix (coerce (arrayof Field) DenseMLE (array 1 2 3 4)) 0 (array 1)) (array 0))",
             &empty_env(),
         ).unwrap();
         let passed = v == Value::Int(2);

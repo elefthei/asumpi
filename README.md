@@ -14,7 +14,7 @@ arkΣΠ uses S-expression syntax (native egg format). Expressions are parsed int
 | **Type Tags** (12) | `Field`, `Curve`, `Int`, `Bool`, `DensePoly`, `SparsePoly`, `DenseMLE`, `SparseMLE`, `MVPoly`, `Array`, `Pair`, `arrayof` | `Field`, `(arrayof Field)` |
 | **Evaluation & Queries** (3) | `eval`, `deg`, `numvars` | `(eval DensePoly p x)`, `(deg DensePoly p)` |
 | **Symbolic Constructors** (3) | `ids`, `poly`, `mle` | `(poly (ids x) 5 (mul Field Field 3 (pow Field x 2)))` |
-| **Poly-Specific** (2) | `div`, `fix` | `(div DensePoly p q)` → `Pair(quotient, remainder)` |
+| **Poly-Specific** (2) | `div`, `fix` | `(div DensePoly p q)`, `(fix mle 2 (array v))` |
 | **Tuples** (3) | `pair`, `fst`, `snd` | `(fst (div DensePoly a b))` |
 | **Indexed Sum/Product/Comprehension** (4) | `bound`, `Σ`, `Π`, `for` | `(Σ i 0 N body)`, `(for i 0 N body)` |
 | **FFT/Domain** (3) | `domain`, `fft`, `ifft` | `(fft DensePoly 8 p)`, `(domain 4)` |
@@ -135,6 +135,22 @@ Dot products and Hadamard (element-wise) products are expressed compositionally 
 (fst (div DensePoly a b))                      ;; quotient
 ```
 
+### Partial Evaluation (fix)
+
+Fix k consecutive MLE variables starting at position `start`:
+
+```lisp
+;; (fix mle start_index partial_array)
+;; MLE with 3 vars: f(x0, x1, x2), evals = [1,2,3,4,5,6,7,8]
+(fix mle 0 (array 1))                         ;; fix x0=1 → g(x1,x2)
+(fix mle 1 (array 1))                         ;; fix x1=1 → g(x0,x2)
+(fix mle 2 (array 1))                         ;; fix x2=1 → g(x0,x1)
+(fix mle 0 (array 1 1))                       ;; fix x0=1, x1=1 → g(x2)
+(fix (fix mle 2 (array 1)) 0 (array 1))       ;; chain: fix x2=1, then x0=1
+```
+
+Works on both DenseMLE and SparseMLE. Returns an MLE with `num_vars - k` variables.
+
 ### Array Operations
 
 ```lisp
@@ -193,7 +209,7 @@ The `fusion_rules` group eliminates intermediate arrays produced by `for` compre
 
 ```bash
 cargo build --release
-cargo test --release       # 313 tests (232 lib + 44 algebraic laws + 37 property)
+cargo test --release       # 320 tests (239 lib + 44 algebraic laws + 37 property)
 cargo run --release        # 73 demo tests → results.json
 ```
 
@@ -201,7 +217,7 @@ Always use `--release`; arkworks crypto operations are extremely slow in debug m
 
 ## Test Suite
 
-- **232 unit tests**: evaluator, language parsing, rewrite rules, type analysis, guarded conditions, FFT/IFFT, symbolic poly, tuples, coerce, typed ops, for comprehension, stream fusion
+- **239 unit tests**: evaluator, language parsing, rewrite rules, type analysis, guarded conditions, FFT/IFFT, symbolic poly, tuples, coerce, typed ops, for comprehension, stream fusion, MLE partial eval
 - **44 algebraic law tests**: rewrite rule soundness, optimizer round-trip, guard necessity, cross-type laws, FFT roundtrip, div identity
 - **37 property tests**: field/curve/polynomial ring axioms, array theory, Σ-MSM linearity, for comprehension properties
 - **73 demo tests**: comprehensive integration coverage

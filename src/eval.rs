@@ -866,17 +866,66 @@ fn typed_mul(ty_a: ArkType, ty_b: ArkType, va: Value, vb: Value) -> Result<Value
 /// Evaluate poly-specific operations (fix).
 fn eval_poly_specific(expr: &RecExpr<ArkLang>, node: &ArkLang, env: &Env) -> Result<Value, EvalError> {
     match node {
-        ArkLang::Fix([mle, partial]) => {
-            let vm = eval_id(expr, *mle, env)?.as_mle()?;
+        ArkLang::Fix([mle, start, partial]) => {
+            let vs = eval_id(expr, *start, env)?.as_int()?;
             let vp = eval_id(expr, *partial, env)?.as_array()?;
             let partial_fr: Vec<Fr> = vp.into_iter()
                 .map(|v| v.as_field())
                 .collect::<Result<_, _>>()?;
-            Ok(Value::MLE(vm.fix_variables(&partial_fr)))
+            let k = partial_fr.len();
+            let s = vs as usize;
+
+            let vm = eval_id(expr, *mle, env)?;
+            match vm {
+                Value::MLE(m) => {
+                    if s + k > m.num_vars() {
+                        return Err(EvalError::TypeError(format!(
+                            "fix: start({}) + len({}) > num_vars({})", s, k, m.num_vars()
+                        )));
+                    }
+                    Ok(Value::MLE(fix_at(m, s, &partial_fr)))
+                }
+                Value::SparseMLE(m) => {
+                    if s + k > m.num_vars() {
+                        return Err(EvalError::TypeError(format!(
+                            "fix: start({}) + len({}) > num_vars({})", s, k, m.num_vars()
+                        )));
+                    }
+                    if s == 0 {
+                        Ok(Value::SparseMLE(m.fix_variables(&partial_fr)))
+                    } else {
+                        // SparseMLE::relabel has a strict < bound bug in arkworks 0.5;
+                        // convert to dense for non-zero start positions.
+                        let dense = DenseMultilinearExtension::from_evaluations_vec(
+                            m.num_vars(), m.to_evaluations(),
+                        );
+                        Ok(Value::MLE(fix_at(dense, s, &partial_fr)))
+                    }
+                }
+                _ => Err(EvalError::TypeError(format!(
+                    "fix: expected MLE or SparseMLE, got {}", vm.type_name()
+                ))),
+            }
         }
 
         _ => unreachable!("eval_poly_specific called with non-poly-specific node"),
     }
+}
+
+/// Fix k consecutive variables at position `s` using only arkworks API.
+/// For each value: relabel to bring target var to front, fix it, relabel back.
+fn fix_at<M: MultilinearExtension<Fr>>(mut mle: M, s: usize, values: &[Fr]) -> M {
+    if s == 0 {
+        return mle.fix_variables(values);
+    }
+    for &val in values {
+        mle = mle.relabel(0, s, 1);
+        mle = mle.fix_variables(&[val]);
+        if s > 1 {
+            mle = mle.relabel(0, s - 1, 1);
+        }
+    }
+    mle
 }
 
 /// Evaluate a symbolic polynomial constructor `(poly (ids x y ...) term1 term2 ...)`.
@@ -1336,11 +1385,115 @@ mod tests {
 
     #[test]
     fn test_mle_fix_variables() {
+        // MLE(2 vars) evals=[1,2,3,4]: f(0,0)=1, f(1,0)=2, f(0,1)=3, f(1,1)=4
+        // Fix x0=1 → g(x1) = f(1,x1): g(0)=2, g(1)=4
         let v = eval_str(
-            "(eval DenseMLE (fix (coerce (arrayof Field) DenseMLE (array 1 2 3 4)) (array 1)) (array 0))",
+            "(eval DenseMLE (fix (coerce (arrayof Field) DenseMLE (array 1 2 3 4)) 0 (array 1)) (array 0))",
             &empty_env(),
         ).unwrap();
         assert_eq!(v, Value::Int(2));
+    }
+
+    #[test]
+    fn test_mle_fix_second_variable() {
+        // MLE(2 vars) evals=[1,2,3,4]: f(x0,x1)
+        // Fix x1=1 → g(x0) = f(x0,1): g(0)=3, g(1)=4
+        let v = eval_str(
+            "(eval DenseMLE (fix (coerce (arrayof Field) DenseMLE (array 1 2 3 4)) 1 (array 1)) (array 0))",
+            &empty_env(),
+        ).unwrap();
+        assert_eq!(v, Value::Int(3));
+
+        let v2 = eval_str(
+            "(eval DenseMLE (fix (coerce (arrayof Field) DenseMLE (array 1 2 3 4)) 1 (array 1)) (array 1))",
+            &empty_env(),
+        ).unwrap();
+        assert_eq!(v2, Value::Int(4));
+    }
+
+    #[test]
+    fn test_mle_fix_3var_middle() {
+        // MLE(3 vars) evals=[1,2,3,4,5,6,7,8]: f(x0,x1,x2)
+        // Index = x0 + 2*x1 + 4*x2 (little-endian)
+        // f(0,0,0)=1, f(1,0,0)=2, f(0,1,0)=3, f(1,1,0)=4
+        // f(0,0,1)=5, f(1,0,1)=6, f(0,1,1)=7, f(1,1,1)=8
+        // Fix x1=1 → g(x0,x2) = f(x0,1,x2)
+        // g(0,0)=f(0,1,0)=3, g(1,0)=f(1,1,0)=4, g(0,1)=f(0,1,1)=7, g(1,1)=f(1,1,1)=8
+        let v = eval_str(
+            "(eval DenseMLE (fix (coerce (arrayof Field) DenseMLE (array 1 2 3 4 5 6 7 8)) 1 (array 1)) (array 0 0))",
+            &empty_env(),
+        ).unwrap();
+        assert_eq!(v, Value::Int(3));
+
+        let v2 = eval_str(
+            "(eval DenseMLE (fix (coerce (arrayof Field) DenseMLE (array 1 2 3 4 5 6 7 8)) 1 (array 1)) (array 1 1))",
+            &empty_env(),
+        ).unwrap();
+        assert_eq!(v2, Value::Int(8));
+    }
+
+    #[test]
+    fn test_mle_fix_last_variable() {
+        // MLE(3 vars) evals=[1,2,3,4,5,6,7,8]
+        // Fix x2=1 → g(x0,x1) = f(x0,x1,1)
+        // g(0,0)=f(0,0,1)=5, g(1,0)=f(1,0,1)=6, g(0,1)=f(0,1,1)=7, g(1,1)=f(1,1,1)=8
+        let v = eval_str(
+            "(eval DenseMLE (fix (coerce (arrayof Field) DenseMLE (array 1 2 3 4 5 6 7 8)) 2 (array 1)) (array 0 0))",
+            &empty_env(),
+        ).unwrap();
+        assert_eq!(v, Value::Int(5));
+    }
+
+    #[test]
+    fn test_mle_fix_multiple_consecutive() {
+        // MLE(3 vars) evals=[1,2,3,4,5,6,7,8]
+        // Fix x0=1, x1=1 (start=0, partial=[1,1]) → g(x2) = f(1,1,x2)
+        // g(0)=f(1,1,0)=4, g(1)=f(1,1,1)=8
+        let v = eval_str(
+            "(eval DenseMLE (fix (coerce (arrayof Field) DenseMLE (array 1 2 3 4 5 6 7 8)) 0 (array 1 1)) (array 0))",
+            &empty_env(),
+        ).unwrap();
+        assert_eq!(v, Value::Int(4));
+
+        let v2 = eval_str(
+            "(eval DenseMLE (fix (coerce (arrayof Field) DenseMLE (array 1 2 3 4 5 6 7 8)) 0 (array 1 1)) (array 1))",
+            &empty_env(),
+        ).unwrap();
+        assert_eq!(v2, Value::Int(8));
+    }
+
+    #[test]
+    fn test_mle_fix_chained() {
+        // Chain: first fix x2=1, then fix x0=1 in the result
+        // f(x0,x1,x2), fix x2=1 → g(x0,x1) = f(x0,x1,1)
+        // Then fix x0=1 in g → h(x1) = g(1,x1) = f(1,x1,1)
+        // f(1,0,1)=6, f(1,1,1)=8
+        let v = eval_str(
+            "(eval DenseMLE (fix (fix (coerce (arrayof Field) DenseMLE (array 1 2 3 4 5 6 7 8)) 2 (array 1)) 0 (array 1)) (array 0))",
+            &empty_env(),
+        ).unwrap();
+        assert_eq!(v, Value::Int(6));
+    }
+
+    #[test]
+    fn test_mle_fix_out_of_bounds() {
+        // Fix at position 2 in a 2-var MLE → error
+        let r = eval_str(
+            "(fix (coerce (arrayof Field) DenseMLE (array 1 2 3 4)) 2 (array 1))",
+            &empty_env(),
+        );
+        assert!(r.is_err());
+    }
+
+    #[test]
+    fn test_sparse_mle_fix() {
+        // SparseMLE fix: same semantics as dense, result is DenseMLE
+        // MLE(2 vars) evals=[1,2,3,4], fix x1=1 → g(x0)=f(x0,1): g(0)=3, g(1)=4
+        let v = eval_str(
+            "(eval DenseMLE (fix (coerce DenseMLE SparseMLE (coerce (arrayof Field) DenseMLE (array 1 2 3 4))) 1 (array 1)) (array 0))",
+            &empty_env(),
+        ).unwrap();
+        assert_eq!(v, Value::Int(3));
     }
 
     #[test]

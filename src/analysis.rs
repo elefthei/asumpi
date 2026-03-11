@@ -62,10 +62,12 @@ impl Analysis<ArkLang> for TypeAnalysis {
                 types.insert(ArkType::MVPoly);
             }
 
-            ArkLang::Fix([a, b]) => {
+            ArkLang::Fix([a, b, c]) => {
                 free_vars.extend(&cd(a).free_vars);
                 free_vars.extend(&cd(b).free_vars);
+                free_vars.extend(&cd(c).free_vars);
                 types.insert(ArkType::DenseMLE);
+                types.insert(ArkType::SparseMLE);
             }
 
             ArkLang::Pair([a, b]) => {
