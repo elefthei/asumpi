@@ -9,7 +9,44 @@ use ark_poly::{
     DenseUVPolynomial, DenseMVPolynomial,
     MultilinearExtension, Polynomial as PolyTrait,
 };
+use spongefish::ProverState;
+use std::cell::RefCell;
 use std::fmt;
+
+/// Type alias for the default sponge hash function.
+pub type StdHash = spongefish::StdHash;
+
+/// Table of sponge states with linear ownership semantics.
+/// Each sponge is stored as `Option<ProverState>` — taking a sponge
+/// sets its slot to `None`, preventing reuse (linear resource).
+pub struct SpongeTable {
+    sponges: RefCell<Vec<Option<ProverState<StdHash>>>>,
+}
+
+impl SpongeTable {
+    pub fn new() -> Self {
+        Self { sponges: RefCell::new(Vec::new()) }
+    }
+
+    /// Insert a new sponge, returning its handle index.
+    pub fn insert(&self, sponge: ProverState<StdHash>) -> usize {
+        let mut sponges = self.sponges.borrow_mut();
+        let id = sponges.len();
+        sponges.push(Some(sponge));
+        id
+    }
+
+    /// Take a sponge out of the table (linear: can only be taken once).
+    pub fn take(&self, id: usize) -> Result<ProverState<StdHash>, EvalError> {
+        let mut sponges = self.sponges.borrow_mut();
+        if id >= sponges.len() {
+            return Err(EvalError::TypeError(format!("invalid sponge handle #{}", id)));
+        }
+        sponges[id].take().ok_or_else(|| {
+            EvalError::TypeError(format!("sponge #{} already consumed (linear resource)", id))
+        })
+    }
+}
 
 /// Type tags for arkΣΠ values (also used in analysis).
 /// Defined here to avoid circular dependencies.
@@ -27,6 +64,7 @@ pub enum ArkType {
     ArrayOf(Box<ArkType>),
     Pair,
     Bool,
+    Sponge,
     Unknown,
 }
 
@@ -55,6 +93,8 @@ pub enum Value {
     Bool(bool),
     /// Integer value (for indices, exponents, etc.)
     Int(i64),
+    /// Sponge handle (index into SpongeTable, linear resource)
+    Sponge(usize),
 }
 
 impl Value {
@@ -72,6 +112,7 @@ impl Value {
             Value::Pair(_, _) => ArkType::Pair,
             Value::Bool(_) => ArkType::Bool,
             Value::Int(_) => ArkType::Int,
+            Value::Sponge(_) => ArkType::Sponge,
         }
     }
 
@@ -210,6 +251,7 @@ impl Value {
             Value::Pair(_, _) => "Pair",
             Value::Bool(_) => "Bool",
             Value::Int(_) => "Int",
+            Value::Sponge(_) => "Sponge",
         }
     }
 }
@@ -240,6 +282,7 @@ impl fmt::Display for Value {
             Value::Pair(a, b) => write!(f, "Pair({}, {})", a, b),
             Value::Bool(b) => write!(f, "Bool({})", b),
             Value::Int(n) => write!(f, "Int({})", n),
+            Value::Sponge(id) => write!(f, "Sponge(#{})", id),
         }
     }
 }
@@ -251,6 +294,7 @@ impl PartialEq for Value {
             (Value::Curve(a), Value::Curve(b)) => a.into_affine() == b.into_affine(),
             (Value::Bool(a), Value::Bool(b)) => a == b,
             (Value::Int(a), Value::Int(b)) => a == b,
+            (Value::Sponge(a), Value::Sponge(b)) => a == b,
             (Value::Array(a), Value::Array(b)) => a == b,
             (Value::Polynomial(a), Value::Polynomial(b)) => a.coeffs == b.coeffs,
             (Value::MLE(a), Value::MLE(b)) => a == b,

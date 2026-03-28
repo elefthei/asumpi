@@ -1,17 +1,17 @@
 # arkΣΠ — Algebraic Language & Runtime
 
-A 45-node algebraic intermediate language with explicitly-typed arithmetic, indexed Σ/Π loops, FFT/IFFT, tuples, and explicit type coercions over BLS12-381 field/curve/polynomial types, optimized via egg's equality saturation with type-analysis-guarded rewrite rules.
+A 49-node algebraic intermediate language with explicitly-typed arithmetic, indexed Σ/Π loops, FFT/IFFT, tuples, Fiat-Shamir sponge, and explicit type coercions over BLS12-381 field/curve/polynomial types, optimized via egg's equality saturation with type-analysis-guarded rewrite rules.
 
 ## Language Overview
 
 arkΣΠ uses S-expression syntax (native egg format). Expressions are parsed into `RecExpr<ArkLang>` and evaluated by a type-validated runtime interpreter.
 
-### Node Types (45 total)
+### Node Types (49 total)
 
 | Category | Nodes | Syntax |
 |----------|-------|--------|
 | **Typed Arithmetic** (6) | `add`, `neg`, `mul`, `inv`, `pow`, `coerce` | `(add Field Field x y)`, `(mul Field Curve 3 P)` |
-| **Type Tags** (12) | `Field`, `Curve`, `Int`, `Bool`, `DensePoly`, `SparsePoly`, `DenseMLE`, `SparseMLE`, `MVPoly`, `Array`, `Pair`, `arrayof` | `Field`, `(arrayof Field)` |
+| **Type Tags** (13) | `Field`, `Curve`, `Int`, `Bool`, `DensePoly`, `SparsePoly`, `DenseMLE`, `SparseMLE`, `MVPoly`, `Array`, `Pair`, `Sponge`, `arrayof` | `Field`, `(arrayof Field)` |
 | **Evaluation & Queries** (3) | `eval`, `deg`, `numvars` | `(eval DensePoly p x)`, `(deg DensePoly p)` |
 | **Symbolic Constructors** (3) | `ids`, `poly`, `mle` | `(poly (ids x) 5 (mul Field Field 3 (pow Field x 2)))` |
 | **Poly-Specific** (2) | `div`, `fix` | `(div DensePoly p q)`, `(fix mle 2 (array v))` |
@@ -19,6 +19,7 @@ arkΣΠ uses S-expression syntax (native egg format). Expressions are parsed int
 | **Indexed Sum/Product/Comprehension** (4) | `bound`, `Σ`, `Π`, `for` | `(Σ i 0 N body)`, `(for i 0 N body)` |
 | **FFT/Domain** (3) | `domain`, `fft`, `ifft` | `(fft DensePoly 8 p)`, `(domain 4)` |
 | **Array** (4) | `array`, `length`, `get`, `set` | `(array 1 2 3)`, `(get Field arr 1)` |
+| **Sponge** (3) | `absorb_public`, `absorb_private`, `squeeze` | `(absorb_public Field s x)`, `(squeeze Field s)` |
 | **Control** (2) | `let`, `if` | `(let x 5 (mul Int Int x x))` |
 | **Comparison** (1) | `eq` | `(eq Field a b)` |
 | **Primitives** (2) | `Num`, `Symbol` | `42`, `x` |
@@ -160,6 +161,31 @@ Works on both DenseMLE and SparseMLE. Returns an MLE with `num_vars - k` variabl
 (length arr)                                   ;; array length
 ```
 
+### Sponge (Fiat-Shamir)
+
+Cryptographic sponge for Fiat-Shamir transformations, backed by [spongefish](https://github.com/arkworks-rs/spongefish). Sponges are **linear resources** — each sponge value can be used exactly once (enforced at runtime).
+
+```lisp
+;; absorb a public value into the sponge, returns new sponge
+(absorb_public Field s 42)
+(absorb_public Field s (array 1 2 3))          ;; absorb array element-wise
+
+;; absorb a private (prover) message, returns new sponge
+(absorb_private Field s witness)
+
+;; squeeze a verifier challenge, returns Pair(value, new_sponge)
+(squeeze Field s)
+
+;; Multi-round protocol with explicit sponge threading
+(let s1 (absorb_public Field s0 x)
+  (let result (squeeze Field s1)
+    (let challenge (fst result)
+      (let s2 (snd result)
+        (absorb_public Field s2 challenge)))))
+```
+
+Absorb dispatches on type: `Field`, `Curve`, `Array`, `Polynomial`, `MLE`, `Pair` are all supported. Sponge operations are opaque to the equality saturation optimizer.
+
 ## Rewrite Rules (39 total)
 
 | Category | Function | Count | Examples |
@@ -209,7 +235,7 @@ The `fusion_rules` group eliminates intermediate arrays produced by `for` compre
 
 ```bash
 cargo build --release
-cargo test --release       # 320 tests (239 lib + 44 algebraic laws + 37 property)
+cargo test --release       # 327 tests (246 lib + 44 algebraic laws + 37 property)
 cargo run --release        # 73 demo tests → results.json
 ```
 
@@ -217,7 +243,7 @@ Always use `--release`; arkworks crypto operations are extremely slow in debug m
 
 ## Test Suite
 
-- **239 unit tests**: evaluator, language parsing, rewrite rules, type analysis, guarded conditions, FFT/IFFT, symbolic poly, tuples, coerce, typed ops, for comprehension, stream fusion, MLE partial eval
+- **246 unit tests**: evaluator, language parsing, rewrite rules, type analysis, guarded conditions, FFT/IFFT, symbolic poly, tuples, coerce, typed ops, for comprehension, stream fusion, MLE partial eval, sponge Fiat-Shamir
 - **44 algebraic law tests**: rewrite rule soundness, optimizer round-trip, guard necessity, cross-type laws, FFT roundtrip, div identity
 - **37 property tests**: field/curve/polynomial ring axioms, array theory, Σ-MSM linearity, for comprehension properties
 - **73 demo tests**: comprehensive integration coverage

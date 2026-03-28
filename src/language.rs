@@ -78,6 +78,12 @@ define_language! {
         "set"     = Set([Id; 4]),
         "eq"      = Eq([Id; 3]),
 
+        // ── Sponge (Fiat-Shamir) ──
+        "Sponge"         = TSponge,
+        "absorb_public"  = AbsorbPublic([Id; 3]),
+        "absorb_private" = AbsorbPrivate([Id; 3]),
+        "squeeze"        = Squeeze([Id; 2]),
+
         // ── Variable Reference ──
         Symbol(egg::Symbol),
     }
@@ -99,6 +105,7 @@ pub fn tag_to_type(node: &ArkLang) -> Option<ArkType> {
         ArkLang::TMVPoly    => Some(ArkType::MVPoly),
         ArkLang::TArray     => Some(ArkType::Array),
         ArkLang::TPair      => Some(ArkType::Pair),
+        ArkLang::TSponge    => Some(ArkType::Sponge),
         _ => None,
     }
 }

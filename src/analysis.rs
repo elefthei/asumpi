@@ -250,6 +250,22 @@ impl Analysis<ArkLang> for TypeAnalysis {
                 free_vars.extend(&cd(b).free_vars);
                 types.insert(ArkType::Bool);
             }
+
+            // ── Sponge (Fiat-Shamir) ──
+            ArkLang::TSponge => {
+                // Type tag leaf — no type info, no free vars
+            }
+
+            ArkLang::AbsorbPublic([_t, sponge, val]) | ArkLang::AbsorbPrivate([_t, sponge, val]) => {
+                free_vars.extend(&cd(sponge).free_vars);
+                free_vars.extend(&cd(val).free_vars);
+                types.insert(ArkType::Sponge);
+            }
+
+            ArkLang::Squeeze([_t, sponge]) => {
+                free_vars.extend(&cd(sponge).free_vars);
+                types.insert(ArkType::Pair);
+            }
         }
 
         TypeData { types, free_vars }
