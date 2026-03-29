@@ -18,41 +18,45 @@ use ark_sigma_pi::{eval_with_sponge, eval_with_verifier, ArkLang, Env, SpongeTab
 
 // ── Prover program (asumpi S-expression) ──
 //
-// Inputs: s (ProverState), pk (Curve), R (Curve), k (Field), sk (Field)
+// Inputs: s (ProverState), g (Curve), pk (Curve), R (Curve), k (Field), sk (Field)
 // Output: final ProverState (with transcript containing R, z)
 const PROVER_PROGRAM: &str = "\
-(let s1 (absorb_public Curve s pk) \
-  (let s2 (absorb_private Curve s1 R) \
-    (let r (squeeze Field s2) \
-      (let c (fst r) \
-        (let s3 (snd r) \
-          (let z (add Field Field k (mul Field Field c sk)) \
-            (absorb_private Field s3 z)))))))";
+(let s1 (absorb_public Curve s g) \
+  (let s2 (absorb_public Curve s1 pk) \
+    (let s3 (absorb_private Curve s2 R) \
+      (let r (squeeze Field s3) \
+        (let c (fst r) \
+          (let s4 (snd r) \
+            (let z (add Field Field k (mul Field Field c sk)) \
+              (absorb_private Field s4 z))))))))";
 
 // ── Verifier program (asumpi S-expression) ──
 //
-// Inputs: vs (VerifierState), pk (Curve), g (Curve)
+// Inputs: vs (VerifierState), g (Curve), pk (Curve)
 // Output: Bool(true) if proof valid, error otherwise
 const VERIFIER_PROGRAM: &str = "\
-(let vs1 (absorb_public Curve vs pk) \
-  (let r1 (read_transcript Curve vs1) \
-    (let R (fst r1) \
-      (let vs2 (snd r1) \
-        (let r2 (squeeze Field vs2) \
-          (let c (fst r2) \
-            (let vs3 (snd r2) \
-              (let r3 (read_transcript Field vs3) \
-                (let z (fst r3) \
-                  (let vs4 (snd r3) \
-                    (let _eof (check_eof vs4) \
-                      (verify (eq Curve \
-                        (mul Field Curve z g) \
-                        (add Curve Curve R (mul Field Curve c pk)))))))))))))))";
+(let vs1 (absorb_public Curve vs g) \
+  (let vs2 (absorb_public Curve vs1 pk) \
+    (let r1 (read_transcript Curve vs2) \
+      (let R (fst r1) \
+        (let vs3 (snd r1) \
+          (let r2 (squeeze Field vs3) \
+            (let c (fst r2) \
+              (let vs4 (snd r2) \
+                (let r3 (read_transcript Field vs4) \
+                  (let z (fst r3) \
+                    (let vs5 (snd r3) \
+                      (let _eof (check_eof vs5) \
+                        (verify (eq Curve \
+                          (mul Field Curve z g) \
+                          (add Curve Curve R (mul Field Curve c pk))))))))))))))))";
 
 fn main() {
     println!("=== Schnorr Protocol in arkΣΠ ===\n");
 
     // ── Setup ──
+    // NOTE: Fixed seed for reproducibility. In production, use OsRng for the nonce k.
+    // Reusing a nonce across different messages leaks the secret key.
     let mut rng = StdRng::seed_from_u64(42);
     let g = G1Projective::rand(&mut rng);
     let sk = Fr::rand(&mut rng);
@@ -76,6 +80,7 @@ fn main() {
 
     let mut prover_env: Env = HashMap::new();
     prover_env.insert(Symbol::from("s"), Value::ProverState(prover_id));
+    prover_env.insert(Symbol::from("g"), Value::Curve(g));
     prover_env.insert(Symbol::from("pk"), Value::Curve(pk));
     prover_env.insert(Symbol::from("R"), Value::Curve(commitment));
     prover_env.insert(Symbol::from("k"), Value::Field(k));
