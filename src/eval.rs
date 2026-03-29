@@ -292,13 +292,28 @@ fn eval_id(expr: &RecExpr<ArkLang>, id: Id, env: &Env, ctx: Option<&FiatShamirCt
             }
         }
 
-        ArkLang::ReadTranscript([_t, sponge]) => {
+        ArkLang::ReadTranscript([t, sponge]) => {
+            let ty = resolve_type_tag(expr, *t)?;
             let (vt, mut verifier) = take_verifier(expr, *sponge, env, ctx)?;
-            let val: Fr = verifier.prover_message().map_err(|_| {
-                EvalError::TypeError("read_transcript: failed to read from transcript".into())
-            })?;
+            let val = match ty {
+                ArkType::Field => {
+                    let f: Fr = verifier.prover_message().map_err(|_| {
+                        EvalError::TypeError("read_transcript: failed to read Field from transcript".into())
+                    })?;
+                    Value::Field(f)
+                }
+                ArkType::Curve => {
+                    let p: ark_bls12_381::G1Affine = verifier.prover_message().map_err(|_| {
+                        EvalError::TypeError("read_transcript: failed to read Curve from transcript".into())
+                    })?;
+                    Value::Curve(p.into())
+                }
+                _ => return Err(EvalError::TypeError(format!(
+                    "read_transcript: unsupported type {:?}", ty
+                ))),
+            };
             let new_id = vt.insert(verifier);
-            Ok(Value::Pair(Box::new(Value::Field(val)), Box::new(Value::VerifierState(new_id))))
+            Ok(Value::Pair(Box::new(val), Box::new(Value::VerifierState(new_id))))
         }
 
         ArkLang::Verify([cond]) => {
@@ -611,6 +626,11 @@ fn eval_id(expr: &RecExpr<ArkLang>, id: Id, env: &Env, ctx: Option<&FiatShamirCt
                     let ba = va.as_bool()?;
                     let bb = vb.as_bool()?;
                     Ok(Value::Bool(ba == bb))
+                }
+                ArkType::Curve => {
+                    let ca = va.as_curve()?;
+                    let cb = vb.as_curve()?;
+                    Ok(Value::Bool(ca.into_affine() == cb.into_affine()))
                 }
                 _ => Err(EvalError::TypeError(format!(
                     "eq: unsupported type {:?}", ty
