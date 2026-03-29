@@ -205,20 +205,32 @@ fn eval_id(expr: &RecExpr<ArkLang>, id: Id, env: &Env, ctx: Option<&FiatShamirCt
             Ok(Value::Int(va.len() as i64))
         }
 
-        // ── Let Binding ──
+        // ── Let Binding (with optional pair destructuring) ──
         ArkLang::Let([name, val, body]) => {
-            let name_sym = match &expr[*name] {
-                ArkLang::Symbol(s) => *s,
-                _ => {
-                    return Err(EvalError::TypeError(
-                        "let: first argument must be a variable name".into(),
-                    ))
-                }
-            };
             let val = eval_id(expr, *val, env, ctx)?;
-            let mut new_env = env.clone();
-            new_env.insert(name_sym, val);
-            eval_id(expr, *body, &new_env, ctx)
+            match &expr[*name] {
+                ArkLang::Symbol(s) => {
+                    let mut new_env = env.clone();
+                    new_env.insert(*s, val);
+                    eval_id(expr, *body, &new_env, ctx)
+                }
+                ArkLang::Pair([a, b]) => {
+                    let (va, vb) = val.as_pair()?;
+                    let sym_a = match &expr[*a] {
+                        ArkLang::Symbol(s) => *s,
+                        _ => return Err(EvalError::TypeError("let pair: expected symbol in fst position".into())),
+                    };
+                    let sym_b = match &expr[*b] {
+                        ArkLang::Symbol(s) => *s,
+                        _ => return Err(EvalError::TypeError("let pair: expected symbol in snd position".into())),
+                    };
+                    let mut new_env = env.clone();
+                    new_env.insert(sym_a, va.clone());
+                    new_env.insert(sym_b, vb.clone());
+                    eval_id(expr, *body, &new_env, ctx)
+                }
+                _ => Err(EvalError::TypeError("let: first argument must be a variable name or (pair a b)".into())),
+            }
         }
 
         // ── Conditional ──
@@ -1430,6 +1442,29 @@ mod tests {
         let v = eval_str("(let x 3 (let y 4 (add Int Int (mul Int Int x x) (mul Int Int y y))))", &empty_env())
             .unwrap();
         assert_eq!(v, Value::Int(25));
+    }
+
+    #[test]
+    fn test_let_pair_destructure() {
+        let v = eval_str("(let (pair a b) (pair 3 7) (add Int Int a b))", &empty_env()).unwrap();
+        assert_eq!(v, Value::Int(10));
+    }
+
+    #[test]
+    fn test_let_pair_destructure_nested() {
+        // Destructure result of squeeze-like pair
+        let v = eval_str(
+            "(let (pair x y) (pair 10 20) (let (pair p q) (pair x y) (mul Int Int p q)))",
+            &empty_env(),
+        ).unwrap();
+        assert_eq!(v, Value::Int(200));
+    }
+
+    #[test]
+    fn test_let_pair_destructure_type_error() {
+        // Destructuring a non-pair should fail
+        let r = eval_str("(let (pair a b) 42 (add Int Int a b))", &empty_env());
+        assert!(r.is_err());
     }
 
     // ── Conditional Tests ──
@@ -3142,10 +3177,8 @@ mod tests {
 
         let verifier_result = eval_str_with_verifier(
             "(let vs1 (absorb_public Field vs 7) \
-               (let r (read_transcript Field vs1) \
-                 (let _witness (fst r) \
-                   (let vs2 (snd r) \
-                     (squeeze Field vs2)))))",
+               (let (pair _witness vs2) (read_transcript Field vs1) \
+                 (squeeze Field vs2)))",
             &verifier_env, &vt,
         ).unwrap();
         let (verifier_challenge, _) = verifier_result.as_pair().unwrap();

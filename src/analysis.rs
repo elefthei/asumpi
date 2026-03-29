@@ -117,8 +117,21 @@ impl Analysis<ArkLang> for TypeAnalysis {
             ArkLang::Let([name, val, body]) => {
                 free_vars.extend(&cd(val).free_vars);
                 let mut body_vars = cd(body).free_vars.clone();
+                // Remove bound variable(s) — supports (pair a b) destructuring
                 if let Some(sym) = get_bound_symbol(egraph, *name) {
                     body_vars.remove(&sym);
+                } else {
+                    // Check for pair pattern: both children may be bound symbols
+                    for node in &egraph[*name].nodes {
+                        if let ArkLang::Pair([a, b]) = node {
+                            if let Some(sa) = get_bound_symbol(egraph, *a) {
+                                body_vars.remove(&sa);
+                            }
+                            if let Some(sb) = get_bound_symbol(egraph, *b) {
+                                body_vars.remove(&sb);
+                            }
+                        }
+                    }
                 }
                 free_vars.extend(body_vars);
                 types.extend(cd(body).types.iter().cloned());

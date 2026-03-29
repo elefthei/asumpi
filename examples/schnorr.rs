@@ -24,11 +24,9 @@ const PROVER_PROGRAM: &str = "\
 (let s1 (absorb_public Curve s g) \
   (let s2 (absorb_public Curve s1 pk) \
     (let s3 (absorb_private Curve s2 R) \
-      (let r (squeeze Field s3) \
-        (let c (fst r) \
-          (let s4 (snd r) \
-            (let z (add Field Field k (mul Field Field c sk)) \
-              (absorb_private Field s4 z))))))))";
+      (let (pair c s4) (squeeze Field s3) \
+        (let z (add Field Field k (mul Field Field c sk)) \
+          (absorb_private Field s4 z))))))";
 
 // ── Verifier program (asumpi S-expression) ──
 //
@@ -37,19 +35,13 @@ const PROVER_PROGRAM: &str = "\
 const VERIFIER_PROGRAM: &str = "\
 (let vs1 (absorb_public Curve vs g) \
   (let vs2 (absorb_public Curve vs1 pk) \
-    (let r1 (read_transcript Curve vs2) \
-      (let R (fst r1) \
-        (let vs3 (snd r1) \
-          (let r2 (squeeze Field vs3) \
-            (let c (fst r2) \
-              (let vs4 (snd r2) \
-                (let r3 (read_transcript Field vs4) \
-                  (let z (fst r3) \
-                    (let vs5 (snd r3) \
-                      (let _eof (check_eof vs5) \
-                        (verify (eq Curve \
-                          (mul Field Curve z g) \
-                          (add Curve Curve R (mul Field Curve c pk))))))))))))))))";
+    (let (pair R vs3) (read_transcript Curve vs2) \
+      (let (pair c vs4) (squeeze Field vs3) \
+        (let (pair z vs5) (read_transcript Field vs4) \
+          (let _eof (check_eof vs5) \
+            (verify (eq Curve \
+              (mul Field Curve z g) \
+              (add Curve Curve R (mul Field Curve c pk))))))))))";
 
 fn main() {
     println!("=== Schnorr Protocol in arkΣΠ ===\n");
