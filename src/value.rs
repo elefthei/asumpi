@@ -238,6 +238,17 @@ impl Value {
         }
     }
 
+    /// Extract as sponge handle.
+    pub fn as_sponge(&self) -> Result<usize, EvalError> {
+        match self {
+            Value::Sponge(id) => Ok(*id),
+            _ => Err(EvalError::TypeError(format!(
+                "expected Sponge, got {}",
+                self.type_name()
+            ))),
+        }
+    }
+
     pub fn type_name(&self) -> &'static str {
         match self {
             Value::Field(_) => "Field",

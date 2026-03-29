@@ -227,30 +227,21 @@ fn eval_id(expr: &RecExpr<ArkLang>, id: Id, env: &Env, st: Option<&SpongeTable>)
 
         // ── Sponge (Fiat-Shamir) ──
         ArkLang::AbsorbPublic([_t, sponge, val]) => {
-            let st = st.ok_or_else(|| EvalError::TypeError("sponge operations require a SpongeTable".into()))?;
-            let sponge_val = eval_id(expr, *sponge, env, Some(st))?;
-            let sponge_id = match sponge_val { Value::Sponge(id) => id, _ => return Err(EvalError::TypeError(format!("absorb_public: expected Sponge, got {}", sponge_val.type_name()))) };
-            let mut prover = st.take(sponge_id)?;
+            let (st, mut prover) = take_sponge(expr, *sponge, env, st)?;
             let v = eval_id(expr, *val, env, Some(st))?;
-            absorb_value_public(&mut prover, &v)?;
+            absorb_value(&mut prover, &v, AbsorbMode::Public)?;
             Ok(Value::Sponge(st.insert(prover)))
         }
 
         ArkLang::AbsorbPrivate([_t, sponge, val]) => {
-            let st = st.ok_or_else(|| EvalError::TypeError("sponge operations require a SpongeTable".into()))?;
-            let sponge_val = eval_id(expr, *sponge, env, Some(st))?;
-            let sponge_id = match sponge_val { Value::Sponge(id) => id, _ => return Err(EvalError::TypeError(format!("absorb_private: expected Sponge, got {}", sponge_val.type_name()))) };
-            let mut prover = st.take(sponge_id)?;
+            let (st, mut prover) = take_sponge(expr, *sponge, env, st)?;
             let v = eval_id(expr, *val, env, Some(st))?;
-            absorb_value_private(&mut prover, &v)?;
+            absorb_value(&mut prover, &v, AbsorbMode::Private)?;
             Ok(Value::Sponge(st.insert(prover)))
         }
 
         ArkLang::Squeeze([_t, sponge]) => {
-            let st = st.ok_or_else(|| EvalError::TypeError("sponge operations require a SpongeTable".into()))?;
-            let sponge_val = eval_id(expr, *sponge, env, Some(st))?;
-            let sponge_id = match sponge_val { Value::Sponge(id) => id, _ => return Err(EvalError::TypeError(format!("squeeze: expected Sponge, got {}", sponge_val.type_name()))) };
-            let mut prover = st.take(sponge_id)?;
+            let (st, mut prover) = take_sponge(expr, *sponge, env, st)?;
             let challenge: Fr = prover.verifier_message();
             let new_id = st.insert(prover);
             Ok(Value::Pair(Box::new(Value::Field(challenge)), Box::new(Value::Sponge(new_id))))
@@ -1141,86 +1132,47 @@ pub fn specialize(expr: &RecExpr<ArkLang>, var: Symbol, value: i64) -> RecExpr<A
 use spongefish::ProverState;
 use crate::value::StdHash;
 
-/// Absorb a value into the sponge as a public message.
-fn absorb_value_public(prover: &mut ProverState<StdHash>, val: &Value) -> Result<(), EvalError> {
-    match val {
-        Value::Field(f) => { prover.public_message(f); Ok(()) }
-        Value::Curve(p) => {
-            let aff = p.into_affine();
-            prover.public_message(&aff);
-            Ok(())
-        }
-        Value::Int(n) => { let f = int_to_fr(*n); prover.public_message(&f); Ok(()) }
-        Value::Array(arr) => {
-            for v in arr { absorb_value_public(prover, v)?; }
-            Ok(())
-        }
-        Value::Polynomial(p) => {
-            for c in p.coeffs() { prover.public_message(c); }
-            Ok(())
-        }
-        Value::SparseUVPoly(p) => {
-            for c in DensePolynomial::from(p.clone()).coeffs.iter() { prover.public_message(c); }
-            Ok(())
-        }
-        Value::MLE(m) => {
-            for e in m.evaluations.iter() { prover.public_message(e); }
-            Ok(())
-        }
-        Value::SparseMLE(m) => {
-            for e in m.to_evaluations().iter() { prover.public_message(e); }
-            Ok(())
-        }
-        Value::MVPoly(_) => {
-            Err(EvalError::TypeError("absorb: MVPoly not yet supported".into()))
-        }
-        Value::Pair(a, b) => {
-            absorb_value_public(prover, a)?;
-            absorb_value_public(prover, b)
-        }
-        Value::Bool(b) => { let f = if *b { Fr::from(1u64) } else { Fr::from(0u64) }; prover.public_message(&f); Ok(()) }
-        Value::Sponge(_) => Err(EvalError::TypeError("absorb: cannot absorb a sponge".into())),
-    }
+#[derive(Copy, Clone)]
+enum AbsorbMode { Public, Private }
+
+/// Evaluate a sponge argument: require SpongeTable, eval the sponge expression, take ownership.
+fn take_sponge<'a>(
+    expr: &RecExpr<ArkLang>, sponge_id: Id, env: &Env, st: Option<&'a SpongeTable>,
+) -> Result<(&'a SpongeTable, ProverState<StdHash>), EvalError> {
+    let st = st.ok_or_else(|| EvalError::TypeError("sponge operations require a SpongeTable".into()))?;
+    let sponge_val = eval_id(expr, sponge_id, env, Some(st))?;
+    let idx = sponge_val.as_sponge()?;
+    let prover = st.take(idx)?;
+    Ok((st, prover))
 }
 
-/// Absorb a value into the sponge as a private (prover) message.
-fn absorb_value_private(prover: &mut ProverState<StdHash>, val: &Value) -> Result<(), EvalError> {
+/// Absorb a value into the sponge (public or private mode).
+/// Recursively absorbs all components: Field, Curve, Array, Polynomial, MLE, Pair.
+fn absorb_value(prover: &mut ProverState<StdHash>, val: &Value, mode: AbsorbMode) -> Result<(), EvalError> {
+    // Helper closures for absorbing a single field element
+    macro_rules! absorb_fr {
+        ($f:expr) => {
+            match mode {
+                AbsorbMode::Public => prover.public_message($f),
+                AbsorbMode::Private => prover.prover_message($f),
+            }
+        };
+    }
     match val {
-        Value::Field(f) => { prover.prover_message(f); Ok(()) }
-        Value::Curve(p) => {
-            let aff = p.into_affine();
-            prover.prover_message(&aff);
-            Ok(())
-        }
-        Value::Int(n) => { let f = int_to_fr(*n); prover.prover_message(&f); Ok(()) }
-        Value::Array(arr) => {
-            for v in arr { absorb_value_private(prover, v)?; }
-            Ok(())
-        }
-        Value::Polynomial(p) => {
-            for c in p.coeffs() { prover.prover_message(c); }
-            Ok(())
-        }
+        Value::Field(f) => { absorb_fr!(f); Ok(()) }
+        Value::Curve(p) => { let aff = p.into_affine(); absorb_fr!(&aff); Ok(()) }
+        Value::Int(n) => { let f = int_to_fr(*n); absorb_fr!(&f); Ok(()) }
+        Value::Bool(b) => { let f = if *b { Fr::from(1u64) } else { Fr::from(0u64) }; absorb_fr!(&f); Ok(()) }
+        Value::Array(arr) => { for v in arr { absorb_value(prover, v, mode)?; } Ok(()) }
+        Value::Polynomial(p) => { for c in p.coeffs() { absorb_fr!(c); } Ok(()) }
         Value::SparseUVPoly(p) => {
-            for c in DensePolynomial::from(p.clone()).coeffs.iter() { prover.prover_message(c); }
+            for c in DensePolynomial::from(p.clone()).coeffs.iter() { absorb_fr!(c); }
             Ok(())
         }
-        Value::MLE(m) => {
-            for e in m.evaluations.iter() { prover.prover_message(e); }
-            Ok(())
-        }
-        Value::SparseMLE(m) => {
-            for e in m.to_evaluations().iter() { prover.prover_message(e); }
-            Ok(())
-        }
-        Value::MVPoly(_) => {
-            Err(EvalError::TypeError("absorb: MVPoly not yet supported".into()))
-        }
-        Value::Pair(a, b) => {
-            absorb_value_private(prover, a)?;
-            absorb_value_private(prover, b)
-        }
-        Value::Bool(b) => { let f = if *b { Fr::from(1u64) } else { Fr::from(0u64) }; prover.prover_message(&f); Ok(()) }
+        Value::MLE(m) => { for e in m.evaluations.iter() { absorb_fr!(e); } Ok(()) }
+        Value::SparseMLE(m) => { for e in m.to_evaluations().iter() { absorb_fr!(e); } Ok(()) }
+        Value::MVPoly(_) => Err(EvalError::TypeError("absorb: MVPoly not yet supported".into())),
+        Value::Pair(a, b) => { absorb_value(prover, a, mode)?; absorb_value(prover, b, mode) }
         Value::Sponge(_) => Err(EvalError::TypeError("absorb: cannot absorb a sponge".into())),
     }
 }
