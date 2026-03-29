@@ -19,10 +19,16 @@ use ark_poly::{
 use egg::{Id, RecExpr, Symbol};
 
 use crate::language::{ArkLang, tag_to_type};
-use crate::value::{ArkType, EvalError, Value, SpongeTable, check_homogeneous, int_to_fr};
+use crate::value::{ArkType, EvalError, Value, SpongeTable, VerifierTable, check_homogeneous, int_to_fr};
 
 /// Environment mapping variable names to values.
 pub type Env = HashMap<Symbol, Value>;
+
+/// Context for Fiat-Shamir sponge operations (prover and/or verifier).
+pub struct FiatShamirCtx<'a> {
+    pub prover: Option<&'a SpongeTable>,
+    pub verifier: Option<&'a VerifierTable>,
+}
 
 /// Evaluate an arkΣΠ expression with the given environment.
 pub fn eval(expr: &RecExpr<ArkLang>, env: &Env) -> Result<Value, EvalError> {
@@ -30,14 +36,22 @@ pub fn eval(expr: &RecExpr<ArkLang>, env: &Env) -> Result<Value, EvalError> {
     eval_id(expr, root, env, None)
 }
 
-/// Evaluate with a sponge table for Fiat-Shamir operations.
+/// Evaluate with a sponge table for prover Fiat-Shamir operations.
 pub fn eval_with_sponge(expr: &RecExpr<ArkLang>, env: &Env, st: &SpongeTable) -> Result<Value, EvalError> {
+    let ctx = FiatShamirCtx { prover: Some(st), verifier: None };
     let root = Id::from(expr.as_ref().len() - 1);
-    eval_id(expr, root, env, Some(st))
+    eval_id(expr, root, env, Some(&ctx))
+}
+
+/// Evaluate with a verifier table for verifier Fiat-Shamir operations.
+pub fn eval_with_verifier(expr: &RecExpr<ArkLang>, env: &Env, vt: &VerifierTable) -> Result<Value, EvalError> {
+    let ctx = FiatShamirCtx { prover: None, verifier: Some(vt) };
+    let root = Id::from(expr.as_ref().len() - 1);
+    eval_id(expr, root, env, Some(&ctx))
 }
 
 /// Evaluate a specific node in the expression tree.
-fn eval_id(expr: &RecExpr<ArkLang>, id: Id, env: &Env, st: Option<&SpongeTable>) -> Result<Value, EvalError> {
+fn eval_id(expr: &RecExpr<ArkLang>, id: Id, env: &Env, ctx: Option<&FiatShamirCtx>) -> Result<Value, EvalError> {
     let node = &expr[id];
     match node {
         // ── Constants ──
@@ -61,7 +75,7 @@ fn eval_id(expr: &RecExpr<ArkLang>, id: Id, env: &Env, st: Option<&SpongeTable>)
 
         // ── Symbolic Polynomial Constructor ──
         ArkLang::Poly(children) => {
-            eval_symbolic_poly(expr, children, env, st)
+            eval_symbolic_poly(expr, children, env, ctx)
         }
         ArkLang::Ids(_) => {
             Err(EvalError::TypeError("ids: cannot be evaluated standalone, use inside (poly ...)".into()))
@@ -69,29 +83,29 @@ fn eval_id(expr: &RecExpr<ArkLang>, id: Id, env: &Env, st: Option<&SpongeTable>)
 
         // ── Poly-Specific: Fix ──
         ArkLang::Fix(_) => {
-            eval_poly_specific(expr, node, env, st)
+            eval_poly_specific(expr, node, env, ctx)
         }
 
         // ── Tuples ──
         ArkLang::Pair([a, b]) => {
-            let va = eval_id(expr, *a, env, st)?;
-            let vb = eval_id(expr, *b, env, st)?;
+            let va = eval_id(expr, *a, env, ctx)?;
+            let vb = eval_id(expr, *b, env, ctx)?;
             Ok(Value::Pair(Box::new(va), Box::new(vb)))
         }
         ArkLang::Fst([p]) => {
-            let vp = eval_id(expr, *p, env, st)?;
+            let vp = eval_id(expr, *p, env, ctx)?;
             let (a, _) = vp.as_pair()?;
             Ok(a.clone())
         }
         ArkLang::Snd([p]) => {
-            let vp = eval_id(expr, *p, env, st)?;
+            let vp = eval_id(expr, *p, env, ctx)?;
             let (_, b) = vp.as_pair()?;
             Ok(b.clone())
         }
 
         // ── Domain ──
         ArkLang::Domain([n]) => {
-            let size = eval_id(expr, *n, env, st)?.as_int()? as usize;
+            let size = eval_id(expr, *n, env, ctx)?.as_int()? as usize;
             let domain = GeneralEvaluationDomain::<Fr>::new(size)
                 .ok_or_else(|| EvalError::TypeError(format!(
                     "domain: cannot create evaluation domain of size {}", size
@@ -114,8 +128,8 @@ fn eval_id(expr: &RecExpr<ArkLang>, id: Id, env: &Env, st: Option<&SpongeTable>)
                     "Σ: first argument must be a variable name".into(),
                 )),
             };
-            let start_val = eval_id(expr, *start, env, st)?.as_int()?;
-            let end_val = eval_id(expr, *end, env, st)?.as_int()?;
+            let start_val = eval_id(expr, *start, env, ctx)?.as_int()?;
+            let end_val = eval_id(expr, *end, env, ctx)?.as_int()?;
             if start_val >= end_val {
                 return Ok(Value::Int(0));
             }
@@ -123,7 +137,7 @@ fn eval_id(expr: &RecExpr<ArkLang>, id: Id, env: &Env, st: Option<&SpongeTable>)
             for i in start_val..end_val {
                 let mut new_env = env.clone();
                 new_env.insert(idx_sym, Value::Int(i));
-                let val = eval_id(expr, *body, &new_env, st)?;
+                let val = eval_id(expr, *body, &new_env, ctx)?;
                 acc = Some(match acc {
                     None => val,
                     Some(prev) => typed_add(prev.ark_type(), val.ark_type(), prev, val)?,
@@ -139,8 +153,8 @@ fn eval_id(expr: &RecExpr<ArkLang>, id: Id, env: &Env, st: Option<&SpongeTable>)
                     "Π: first argument must be a variable name".into(),
                 )),
             };
-            let start_val = eval_id(expr, *start, env, st)?.as_int()?;
-            let end_val = eval_id(expr, *end, env, st)?.as_int()?;
+            let start_val = eval_id(expr, *start, env, ctx)?.as_int()?;
+            let end_val = eval_id(expr, *end, env, ctx)?.as_int()?;
             if start_val >= end_val {
                 return Ok(Value::Int(1));
             }
@@ -148,7 +162,7 @@ fn eval_id(expr: &RecExpr<ArkLang>, id: Id, env: &Env, st: Option<&SpongeTable>)
             for i in start_val..end_val {
                 let mut new_env = env.clone();
                 new_env.insert(idx_sym, Value::Int(i));
-                let val = eval_id(expr, *body, &new_env, st)?;
+                let val = eval_id(expr, *body, &new_env, ctx)?;
                 acc = Some(match acc {
                     None => val,
                     Some(prev) => typed_mul(prev.ark_type(), val.ark_type(), prev, val)?,
@@ -165,13 +179,13 @@ fn eval_id(expr: &RecExpr<ArkLang>, id: Id, env: &Env, st: Option<&SpongeTable>)
                     "for: first argument must be a variable name".into(),
                 )),
             };
-            let start_val = eval_id(expr, *start, env, st)?.as_int()?;
-            let end_val = eval_id(expr, *end, env, st)?.as_int()?;
+            let start_val = eval_id(expr, *start, env, ctx)?.as_int()?;
+            let end_val = eval_id(expr, *end, env, ctx)?.as_int()?;
             let mut results = Vec::new();
             for i in start_val..end_val {
                 let mut new_env = env.clone();
                 new_env.insert(idx_sym, Value::Int(i));
-                results.push(eval_id(expr, *body, &new_env, st)?);
+                results.push(eval_id(expr, *body, &new_env, ctx)?);
             }
             Ok(Value::Array(results))
         }
@@ -180,14 +194,14 @@ fn eval_id(expr: &RecExpr<ArkLang>, id: Id, env: &Env, st: Option<&SpongeTable>)
         ArkLang::MkArray(children) => {
             let vals: Vec<Value> = children
                 .iter()
-                .map(|id| eval_id(expr, *id, env, st))
+                .map(|id| eval_id(expr, *id, env, ctx))
                 .collect::<Result<_, _>>()?;
             check_homogeneous(&vals)?;
             Ok(Value::Array(vals))
         }
 
         ArkLang::Length([arr]) => {
-            let va = eval_id(expr, *arr, env, st)?.as_array()?;
+            let va = eval_id(expr, *arr, env, ctx)?.as_array()?;
             Ok(Value::Int(va.len() as i64))
         }
 
@@ -201,19 +215,19 @@ fn eval_id(expr: &RecExpr<ArkLang>, id: Id, env: &Env, st: Option<&SpongeTable>)
                     ))
                 }
             };
-            let val = eval_id(expr, *val, env, st)?;
+            let val = eval_id(expr, *val, env, ctx)?;
             let mut new_env = env.clone();
             new_env.insert(name_sym, val);
-            eval_id(expr, *body, &new_env, st)
+            eval_id(expr, *body, &new_env, ctx)
         }
 
         // ── Conditional ──
         ArkLang::If([cond, then_, else_]) => {
-            let vc = eval_id(expr, *cond, env, st)?.as_bool()?;
+            let vc = eval_id(expr, *cond, env, ctx)?.as_bool()?;
             if vc {
-                eval_id(expr, *then_, env, st)
+                eval_id(expr, *then_, env, ctx)
             } else {
-                eval_id(expr, *else_, env, st)
+                eval_id(expr, *else_, env, ctx)
             }
         }
 
@@ -221,37 +235,96 @@ fn eval_id(expr: &RecExpr<ArkLang>, id: Id, env: &Env, st: Option<&SpongeTable>)
         ArkLang::TField | ArkLang::TCurve | ArkLang::TInt | ArkLang::TBool
         | ArkLang::TDensePoly | ArkLang::TSparsePoly | ArkLang::TDenseMLE
         | ArkLang::TSparseMLE | ArkLang::TMVPoly | ArkLang::TArray | ArkLang::TPair
-        | ArkLang::TSponge => {
+        | ArkLang::TProverState | ArkLang::TVerifierState => {
             Err(EvalError::TypeError("type tags cannot be evaluated directly".into()))
         }
 
         // ── Sponge (Fiat-Shamir) ──
         ArkLang::AbsorbPublic([_t, sponge, val]) => {
-            let (st, mut prover) = take_sponge(expr, *sponge, env, st)?;
-            let v = eval_id(expr, *val, env, Some(st))?;
-            absorb_value(&mut prover, &v, AbsorbMode::Public)?;
-            Ok(Value::Sponge(st.insert(prover)))
+            let sponge_val = eval_id(expr, *sponge, env, ctx)?;
+            let v = eval_id(expr, *val, env, ctx)?;
+            match sponge_val {
+                Value::ProverState(id) => {
+                    let ctx_ref = ctx.ok_or_else(|| EvalError::TypeError("sponge ops require FiatShamirCtx".into()))?;
+                    let st = ctx_ref.prover.ok_or_else(|| EvalError::TypeError("absorb_public: no prover table".into()))?;
+                    let mut prover = st.take(id)?;
+                    absorb_value(&mut prover, &v, AbsorbMode::Public)?;
+                    Ok(Value::ProverState(st.insert(prover)))
+                }
+                Value::VerifierState(id) => {
+                    let ctx_ref = ctx.ok_or_else(|| EvalError::TypeError("sponge ops require FiatShamirCtx".into()))?;
+                    let vt = ctx_ref.verifier.ok_or_else(|| EvalError::TypeError("absorb_public: no verifier table".into()))?;
+                    let mut verifier = vt.take(id)?;
+                    absorb_verifier_public(&mut verifier, &v)?;
+                    Ok(Value::VerifierState(vt.insert(verifier)))
+                }
+                _ => Err(EvalError::TypeError(format!("absorb_public: expected sponge, got {}", sponge_val.type_name()))),
+            }
         }
 
         ArkLang::AbsorbPrivate([_t, sponge, val]) => {
-            let (st, mut prover) = take_sponge(expr, *sponge, env, st)?;
-            let v = eval_id(expr, *val, env, Some(st))?;
+            let (st, mut prover) = take_prover(expr, *sponge, env, ctx)?;
+            let v = eval_id(expr, *val, env, ctx)?;
             absorb_value(&mut prover, &v, AbsorbMode::Private)?;
-            Ok(Value::Sponge(st.insert(prover)))
+            Ok(Value::ProverState(st.insert(prover)))
         }
 
         ArkLang::Squeeze([_t, sponge]) => {
-            let (st, mut prover) = take_sponge(expr, *sponge, env, st)?;
-            let challenge: Fr = prover.verifier_message();
-            let new_id = st.insert(prover);
-            Ok(Value::Pair(Box::new(Value::Field(challenge)), Box::new(Value::Sponge(new_id))))
+            let sponge_val = eval_id(expr, *sponge, env, ctx)?;
+            match sponge_val {
+                Value::ProverState(id) => {
+                    let ctx_ref = ctx.ok_or_else(|| EvalError::TypeError("sponge ops require FiatShamirCtx".into()))?;
+                    let st = ctx_ref.prover.ok_or_else(|| EvalError::TypeError("squeeze: no prover table".into()))?;
+                    let mut prover = st.take(id)?;
+                    let challenge: Fr = prover.verifier_message();
+                    let new_id = st.insert(prover);
+                    Ok(Value::Pair(Box::new(Value::Field(challenge)), Box::new(Value::ProverState(new_id))))
+                }
+                Value::VerifierState(id) => {
+                    let ctx_ref = ctx.ok_or_else(|| EvalError::TypeError("sponge ops require FiatShamirCtx".into()))?;
+                    let vt = ctx_ref.verifier.ok_or_else(|| EvalError::TypeError("squeeze: no verifier table".into()))?;
+                    let mut verifier = vt.take(id)?;
+                    let challenge: Fr = verifier.verifier_message();
+                    let new_id = vt.insert(verifier);
+                    Ok(Value::Pair(Box::new(Value::Field(challenge)), Box::new(Value::VerifierState(new_id))))
+                }
+                _ => Err(EvalError::TypeError(format!("squeeze: expected sponge, got {}", sponge_val.type_name()))),
+            }
+        }
+
+        ArkLang::ReadTranscript([_t, sponge]) => {
+            let (vt, mut verifier) = take_verifier(expr, *sponge, env, ctx)?;
+            let val: Fr = verifier.prover_message().map_err(|_| {
+                EvalError::TypeError("read_transcript: failed to read from transcript".into())
+            })?;
+            let new_id = vt.insert(verifier);
+            Ok(Value::Pair(Box::new(Value::Field(val)), Box::new(Value::VerifierState(new_id))))
+        }
+
+        ArkLang::Verify([cond]) => {
+            let v = eval_id(expr, *cond, env, ctx)?;
+            let b = v.as_bool()?;
+            if b {
+                Ok(Value::Bool(true))
+            } else {
+                Err(EvalError::TypeError("verify: assertion failed".into()))
+            }
+        }
+
+        ArkLang::CheckEof([sponge]) => {
+            let (vt, verifier) = take_verifier(expr, *sponge, env, ctx)?;
+            let _ = vt; // verifier consumed
+            match verifier.check_eof() {
+                Ok(()) => Ok(Value::Bool(true)),
+                Err(_) => Err(EvalError::TypeError("check_eof: transcript not fully consumed".into())),
+            }
         }
 
         // ── Coerce ──
         ArkLang::Coerce([src, dst, x]) => {
             let src_ty = resolve_type_tag(expr, *src)?;
             let dst_ty = resolve_type_tag(expr, *dst)?;
-            let val = eval_id(expr, *x, env, st)?;
+            let val = eval_id(expr, *x, env, ctx)?;
             validate_type(&val, &src_ty)?;
             eval_coerce(src_ty, dst_ty, val)
         }
@@ -260,8 +333,8 @@ fn eval_id(expr: &RecExpr<ArkLang>, id: Id, env: &Env, st: Option<&SpongeTable>)
         ArkLang::Add([ta, tb, a, b]) => {
             let ty_a = resolve_type_tag(expr, *ta)?;
             let ty_b = resolve_type_tag(expr, *tb)?;
-            let va = eval_id(expr, *a, env, st)?;
-            let vb = eval_id(expr, *b, env, st)?;
+            let va = eval_id(expr, *a, env, ctx)?;
+            let vb = eval_id(expr, *b, env, ctx)?;
             validate_type(&va, &ty_a)?;
             validate_type(&vb, &ty_b)?;
             typed_add(ty_a, ty_b, va, vb)
@@ -270,7 +343,7 @@ fn eval_id(expr: &RecExpr<ArkLang>, id: Id, env: &Env, st: Option<&SpongeTable>)
         // ── Typed Neg ──
         ArkLang::Neg([t, a]) => {
             let ty = resolve_type_tag(expr, *t)?;
-            let va = eval_id(expr, *a, env, st)?;
+            let va = eval_id(expr, *a, env, ctx)?;
             validate_type(&va, &ty)?;
             typed_neg(ty, va)
         }
@@ -279,8 +352,8 @@ fn eval_id(expr: &RecExpr<ArkLang>, id: Id, env: &Env, st: Option<&SpongeTable>)
         ArkLang::Mul([ta, tb, a, b]) => {
             let ty_a = resolve_type_tag(expr, *ta)?;
             let ty_b = resolve_type_tag(expr, *tb)?;
-            let va = eval_id(expr, *a, env, st)?;
-            let vb = eval_id(expr, *b, env, st)?;
+            let va = eval_id(expr, *a, env, ctx)?;
+            let vb = eval_id(expr, *b, env, ctx)?;
             validate_type(&va, &ty_a)?;
             validate_type(&vb, &ty_b)?;
             typed_mul(ty_a, ty_b, va, vb)
@@ -289,7 +362,7 @@ fn eval_id(expr: &RecExpr<ArkLang>, id: Id, env: &Env, st: Option<&SpongeTable>)
         // ── Typed Inv ──
         ArkLang::Inv([t, a]) => {
             let ty = resolve_type_tag(expr, *t)?;
-            let va = eval_id(expr, *a, env, st)?;
+            let va = eval_id(expr, *a, env, ctx)?;
             validate_type(&va, &ty)?;
             match ty {
                 ArkType::Field => {
@@ -303,9 +376,9 @@ fn eval_id(expr: &RecExpr<ArkLang>, id: Id, env: &Env, st: Option<&SpongeTable>)
         // ── Typed Pow ──
         ArkLang::Pow([t, base, exp]) => {
             let ty = resolve_type_tag(expr, *t)?;
-            let vb = eval_id(expr, *base, env, st)?;
+            let vb = eval_id(expr, *base, env, ctx)?;
             validate_type(&vb, &ty)?;
-            let ve = eval_id(expr, *exp, env, st)?;
+            let ve = eval_id(expr, *exp, env, ctx)?;
             validate_type(&ve, &ArkType::Int)?;
             match ty {
                 ArkType::Field => {
@@ -329,33 +402,33 @@ fn eval_id(expr: &RecExpr<ArkLang>, id: Id, env: &Env, st: Option<&SpongeTable>)
         // ── Typed Eval ──
         ArkLang::Eval([t, p, x]) => {
             let ty = resolve_type_tag(expr, *t)?;
-            let vp = eval_id(expr, *p, env, st)?;
+            let vp = eval_id(expr, *p, env, ctx)?;
             validate_type(&vp, &ty)?;
             match vp {
                 Value::Polynomial(poly) => {
-                    let xv = eval_id(expr, *x, env, st)?.as_field()?;
+                    let xv = eval_id(expr, *x, env, ctx)?.as_field()?;
                     Ok(Value::Field(poly.evaluate(&xv)))
                 }
                 Value::SparseUVPoly(sp) => {
-                    let xv = eval_id(expr, *x, env, st)?.as_field()?;
+                    let xv = eval_id(expr, *x, env, ctx)?.as_field()?;
                     Ok(Value::Field(Polynomial::evaluate(&sp, &xv)))
                 }
                 Value::MLE(m) => {
-                    let arr = eval_id(expr, *x, env, st)?.as_array()?;
+                    let arr = eval_id(expr, *x, env, ctx)?.as_array()?;
                     let point_fr: Vec<Fr> = arr.into_iter()
                         .map(|v| v.as_field())
                         .collect::<Result<_, _>>()?;
                     Ok(Value::Field(m.evaluate(&point_fr)))
                 }
                 Value::SparseMLE(m) => {
-                    let arr = eval_id(expr, *x, env, st)?.as_array()?;
+                    let arr = eval_id(expr, *x, env, ctx)?.as_array()?;
                     let point_fr: Vec<Fr> = arr.into_iter()
                         .map(|v| v.as_field())
                         .collect::<Result<_, _>>()?;
                     Ok(Value::Field(m.evaluate(&point_fr)))
                 }
                 Value::MVPoly(p) => {
-                    let arr = eval_id(expr, *x, env, st)?.as_array()?;
+                    let arr = eval_id(expr, *x, env, ctx)?.as_array()?;
                     let point_fr: Vec<Fr> = arr.into_iter()
                         .map(|v| v.as_field())
                         .collect::<Result<_, _>>()?;
@@ -370,7 +443,7 @@ fn eval_id(expr: &RecExpr<ArkLang>, id: Id, env: &Env, st: Option<&SpongeTable>)
         // ── Typed Deg ──
         ArkLang::Deg([t, p]) => {
             let ty = resolve_type_tag(expr, *t)?;
-            let vp = eval_id(expr, *p, env, st)?;
+            let vp = eval_id(expr, *p, env, ctx)?;
             validate_type(&vp, &ty)?;
             match vp {
                 Value::Polynomial(p) => Ok(Value::Int(p.degree() as i64)),
@@ -387,7 +460,7 @@ fn eval_id(expr: &RecExpr<ArkLang>, id: Id, env: &Env, st: Option<&SpongeTable>)
         // ── Typed NVars ──
         ArkLang::NVars([t, p]) => {
             let ty = resolve_type_tag(expr, *t)?;
-            let vp = eval_id(expr, *p, env, st)?;
+            let vp = eval_id(expr, *p, env, ctx)?;
             validate_type(&vp, &ty)?;
             match vp {
                 Value::MLE(m) => Ok(Value::Int(m.num_vars() as i64)),
@@ -408,9 +481,9 @@ fn eval_id(expr: &RecExpr<ArkLang>, id: Id, env: &Env, st: Option<&SpongeTable>)
                     "div: only DensePoly supported, got {:?}", ty
                 )));
             }
-            let va = eval_id(expr, *a, env, st)?;
+            let va = eval_id(expr, *a, env, ctx)?;
             validate_type(&va, &ty)?;
-            let vb = eval_id(expr, *b, env, st)?;
+            let vb = eval_id(expr, *b, env, ctx)?;
             validate_type(&vb, &ty)?;
             let pa = va.as_polynomial()?;
             let pb = vb.as_polynomial()?;
@@ -427,12 +500,12 @@ fn eval_id(expr: &RecExpr<ArkLang>, id: Id, env: &Env, st: Option<&SpongeTable>)
         // ── Typed FFT ──
         ArkLang::Fft([t, n, p]) => {
             let ty = resolve_type_tag(expr, *t)?;
-            let size = eval_id(expr, *n, env, st)?.as_int()? as usize;
+            let size = eval_id(expr, *n, env, ctx)?.as_int()? as usize;
             let domain = GeneralEvaluationDomain::<Fr>::new(size)
                 .ok_or_else(|| EvalError::TypeError(format!(
                     "fft: cannot create evaluation domain of size {}", size
                 )))?;
-            let vp = eval_id(expr, *p, env, st)?;
+            let vp = eval_id(expr, *p, env, ctx)?;
             validate_type(&vp, &ty)?;
             let coeffs: Vec<Fr> = match vp {
                 Value::Polynomial(poly) => poly.coeffs.clone(),
@@ -463,12 +536,12 @@ fn eval_id(expr: &RecExpr<ArkLang>, id: Id, env: &Env, st: Option<&SpongeTable>)
                     "ifft: expected Array type tag, got {:?}", ty
                 )));
             }
-            let size = eval_id(expr, *n, env, st)?.as_int()? as usize;
+            let size = eval_id(expr, *n, env, ctx)?.as_int()? as usize;
             let domain = GeneralEvaluationDomain::<Fr>::new(size)
                 .ok_or_else(|| EvalError::TypeError(format!(
                     "ifft: cannot create evaluation domain of size {}", size
                 )))?;
-            let ve = eval_id(expr, *e, env, st)?.as_array()?;
+            let ve = eval_id(expr, *e, env, ctx)?.as_array()?;
             let evals: Vec<Fr> = ve.into_iter()
                 .map(|v| v.as_field())
                 .collect::<Result<_, _>>()?;
@@ -483,8 +556,8 @@ fn eval_id(expr: &RecExpr<ArkLang>, id: Id, env: &Env, st: Option<&SpongeTable>)
         // ── Typed Get ──
         ArkLang::Get([_t, arr, idx]) => {
             // Type tag describes element type — validated post-hoc
-            let va = eval_id(expr, *arr, env, st)?.as_array()?;
-            let vi = eval_id(expr, *idx, env, st)?.as_int()?;
+            let va = eval_id(expr, *arr, env, ctx)?.as_array()?;
+            let vi = eval_id(expr, *idx, env, ctx)?.as_int()?;
             let i = vi as usize;
             if i >= va.len() {
                 return Err(EvalError::IndexOutOfBounds {
@@ -497,9 +570,9 @@ fn eval_id(expr: &RecExpr<ArkLang>, id: Id, env: &Env, st: Option<&SpongeTable>)
 
         // ── Typed Set ──
         ArkLang::Set([_t, arr, idx, val]) => {
-            let mut va = eval_id(expr, *arr, env, st)?.as_array()?;
-            let vi = eval_id(expr, *idx, env, st)?.as_int()?;
-            let vv = eval_id(expr, *val, env, st)?;
+            let mut va = eval_id(expr, *arr, env, ctx)?.as_array()?;
+            let vi = eval_id(expr, *idx, env, ctx)?.as_int()?;
+            let vv = eval_id(expr, *val, env, ctx)?;
             let i = vi as usize;
             if i >= va.len() {
                 return Err(EvalError::IndexOutOfBounds {
@@ -524,9 +597,9 @@ fn eval_id(expr: &RecExpr<ArkLang>, id: Id, env: &Env, st: Option<&SpongeTable>)
         // ── Typed Eq ──
         ArkLang::Eq([t, a, b]) => {
             let ty = resolve_type_tag(expr, *t)?;
-            let va = eval_id(expr, *a, env, st)?;
+            let va = eval_id(expr, *a, env, ctx)?;
             validate_type(&va, &ty)?;
-            let vb = eval_id(expr, *b, env, st)?;
+            let vb = eval_id(expr, *b, env, ctx)?;
             validate_type(&vb, &ty)?;
             match ty {
                 ArkType::Field | ArkType::Int => {
@@ -894,18 +967,18 @@ fn typed_mul(ty_a: ArkType, ty_b: ArkType, va: Value, vb: Value) -> Result<Value
 }
 
 /// Evaluate poly-specific operations (fix).
-fn eval_poly_specific(expr: &RecExpr<ArkLang>, node: &ArkLang, env: &Env, st: Option<&SpongeTable>) -> Result<Value, EvalError> {
+fn eval_poly_specific(expr: &RecExpr<ArkLang>, node: &ArkLang, env: &Env, ctx: Option<&FiatShamirCtx>) -> Result<Value, EvalError> {
     match node {
         ArkLang::Fix([mle, start, partial]) => {
-            let vs = eval_id(expr, *start, env, st)?.as_int()?;
-            let vp = eval_id(expr, *partial, env, st)?.as_array()?;
+            let vs = eval_id(expr, *start, env, ctx)?.as_int()?;
+            let vp = eval_id(expr, *partial, env, ctx)?.as_array()?;
             let partial_fr: Vec<Fr> = vp.into_iter()
                 .map(|v| v.as_field())
                 .collect::<Result<_, _>>()?;
             let k = partial_fr.len();
             let s = vs as usize;
 
-            let vm = eval_id(expr, *mle, env, st)?;
+            let vm = eval_id(expr, *mle, env, ctx)?;
             match vm {
                 Value::MLE(m) => {
                     if s + k > m.num_vars() {
@@ -963,7 +1036,7 @@ fn eval_symbolic_poly(
     expr: &RecExpr<ArkLang>,
     children: &Box<[Id]>,
     env: &Env,
-    st: Option<&SpongeTable>,
+    ctx: Option<&FiatShamirCtx>,
 ) -> Result<Value, EvalError> {
     if children.len() < 2 {
         return Err(EvalError::TypeError("poly: need (ids ...) and at least one term".into()));
@@ -989,7 +1062,7 @@ fn eval_symbolic_poly(
     // Interpret each term as a monomial
     let mut monomials: Vec<(Fr, Vec<usize>)> = Vec::new();
     for i in 1..children.len() {
-        let (coeff, exps) = interpret_monomial(expr, children[i], &var_names, num_vars, env, st)?;
+        let (coeff, exps) = interpret_monomial(expr, children[i], &var_names, num_vars, env, ctx)?;
         if !coeff.is_zero() {
             monomials.push((coeff, exps));
         }
@@ -1024,7 +1097,7 @@ fn interpret_monomial(
     var_names: &[Symbol],
     num_vars: usize,
     env: &Env,
-    st: Option<&SpongeTable>,
+    ctx: Option<&FiatShamirCtx>,
 ) -> Result<(Fr, Vec<usize>), EvalError> {
     match &expr[id] {
         ArkLang::Num(n) => {
@@ -1037,7 +1110,7 @@ fn interpret_monomial(
                 Ok((Fr::one(), exps))
             } else {
                 // Not a formal variable — evaluate from environment as a coefficient
-                let v = eval_id(expr, id, env, st)?;
+                let v = eval_id(expr, id, env, ctx)?;
                 let f = v.as_field().map_err(|_| EvalError::TypeError(
                     format!("poly: symbol '{}' is not a declared variable and could not be evaluated as a field element", s)
                 ))?;
@@ -1048,7 +1121,7 @@ fn interpret_monomial(
             let base_node = &expr[*base];
             if let ArkLang::Symbol(s) = base_node {
                 if let Some(idx) = var_names.iter().position(|v| v == s) {
-                    let exp_val = eval_id(expr, *exp, env, st)?.as_int()?;
+                    let exp_val = eval_id(expr, *exp, env, ctx)?.as_int()?;
                     if exp_val < 0 {
                         return Err(EvalError::TypeError(
                             format!("poly: negative exponent {} not allowed", exp_val)
@@ -1059,26 +1132,26 @@ fn interpret_monomial(
                     return Ok((Fr::one(), exps));
                 }
             }
-            let v = eval_id(expr, id, env, st)?;
+            let v = eval_id(expr, id, env, ctx)?;
             let f = v.as_field().map_err(|_| EvalError::TypeError(
                 "poly: pow expression that is not (pow T <var> <exp>) must evaluate to a field element".into()
             ))?;
             Ok((f, vec![0; num_vars]))
         }
         ArkLang::Mul([_ta, _tb, a, b]) => {
-            let (ca, ea) = interpret_monomial(expr, *a, var_names, num_vars, env, st)?;
-            let (cb, eb) = interpret_monomial(expr, *b, var_names, num_vars, env, st)?;
+            let (ca, ea) = interpret_monomial(expr, *a, var_names, num_vars, env, ctx)?;
+            let (cb, eb) = interpret_monomial(expr, *b, var_names, num_vars, env, ctx)?;
             let coeff = ca * cb;
             let exps: Vec<usize> = ea.iter().zip(eb.iter()).map(|(x, y)| x + y).collect();
             Ok((coeff, exps))
         }
         ArkLang::Neg([_t, a]) => {
-            let (ca, ea) = interpret_monomial(expr, *a, var_names, num_vars, env, st)?;
+            let (ca, ea) = interpret_monomial(expr, *a, var_names, num_vars, env, ctx)?;
             Ok((-ca, ea))
         }
         _ => {
             // Fall through: evaluate normally and treat as constant coefficient
-            let v = eval_id(expr, id, env, st)?;
+            let v = eval_id(expr, id, env, ctx)?;
             let f = v.as_field().map_err(|_| EvalError::TypeError(
                 format!("poly: unsupported term expression, evaluated to non-field value: {}", v.type_name())
             ))?;
@@ -1136,14 +1209,47 @@ use crate::value::StdHash;
 enum AbsorbMode { Public, Private }
 
 /// Evaluate a sponge argument: require SpongeTable, eval the sponge expression, take ownership.
-fn take_sponge<'a>(
-    expr: &RecExpr<ArkLang>, sponge_id: Id, env: &Env, st: Option<&'a SpongeTable>,
+fn take_prover<'a>(
+    expr: &RecExpr<ArkLang>, sponge_id: Id, env: &Env, ctx: Option<&'a FiatShamirCtx>,
 ) -> Result<(&'a SpongeTable, ProverState<StdHash>), EvalError> {
-    let st = st.ok_or_else(|| EvalError::TypeError("sponge operations require a SpongeTable".into()))?;
-    let sponge_val = eval_id(expr, sponge_id, env, Some(st))?;
-    let idx = sponge_val.as_sponge()?;
+    let ctx = ctx.ok_or_else(|| EvalError::TypeError("sponge operations require a FiatShamirCtx".into()))?;
+    let st = ctx.prover.ok_or_else(|| EvalError::TypeError("prover sponge operations require a SpongeTable".into()))?;
+    let sponge_val = eval_id(expr, sponge_id, env, Some(ctx))?;
+    let idx = sponge_val.as_prover_state()?;
     let prover = st.take(idx)?;
     Ok((st, prover))
+}
+
+fn take_verifier<'a>(
+    expr: &RecExpr<ArkLang>, sponge_id: Id, env: &Env, ctx: Option<&'a FiatShamirCtx>,
+) -> Result<(&'a VerifierTable, spongefish::VerifierState<'static, StdHash>), EvalError> {
+    let ctx = ctx.ok_or_else(|| EvalError::TypeError("sponge operations require a FiatShamirCtx".into()))?;
+    let vt = ctx.verifier.ok_or_else(|| EvalError::TypeError("verifier operations require a VerifierTable".into()))?;
+    let sponge_val = eval_id(expr, sponge_id, env, Some(ctx))?;
+    let idx = sponge_val.as_verifier_state()?;
+    let verifier = vt.take(idx)?;
+    Ok((vt, verifier))
+}
+
+/// Absorb a value into a verifier sponge as a public message.
+fn absorb_verifier_public(verifier: &mut spongefish::VerifierState<'static, StdHash>, val: &Value) -> Result<(), EvalError> {
+    match val {
+        Value::Field(f) => { verifier.public_message(f); Ok(()) }
+        Value::Curve(p) => { let aff = p.into_affine(); verifier.public_message(&aff); Ok(()) }
+        Value::Int(n) => { let f = int_to_fr(*n); verifier.public_message(&f); Ok(()) }
+        Value::Bool(b) => { let f = if *b { Fr::from(1u64) } else { Fr::from(0u64) }; verifier.public_message(&f); Ok(()) }
+        Value::Array(arr) => { for v in arr { absorb_verifier_public(verifier, v)?; } Ok(()) }
+        Value::Polynomial(p) => { for c in p.coeffs() { verifier.public_message(c); } Ok(()) }
+        Value::SparseUVPoly(p) => {
+            for c in DensePolynomial::from(p.clone()).coeffs.iter() { verifier.public_message(c); }
+            Ok(())
+        }
+        Value::MLE(m) => { for e in m.evaluations.iter() { verifier.public_message(e); } Ok(()) }
+        Value::SparseMLE(m) => { for e in m.to_evaluations().iter() { verifier.public_message(e); } Ok(()) }
+        Value::MVPoly(_) => Err(EvalError::TypeError("absorb: MVPoly not yet supported".into())),
+        Value::Pair(a, b) => { absorb_verifier_public(verifier, a)?; absorb_verifier_public(verifier, b) }
+        Value::ProverState(_) | Value::VerifierState(_) => Err(EvalError::TypeError("absorb: cannot absorb a sponge".into())),
+    }
 }
 
 /// Absorb a value into the sponge (public or private mode).
@@ -1173,7 +1279,7 @@ fn absorb_value(prover: &mut ProverState<StdHash>, val: &Value, mode: AbsorbMode
         Value::SparseMLE(m) => { for e in m.to_evaluations().iter() { absorb_fr!(e); } Ok(()) }
         Value::MVPoly(_) => Err(EvalError::TypeError("absorb: MVPoly not yet supported".into())),
         Value::Pair(a, b) => { absorb_value(prover, a, mode)?; absorb_value(prover, b, mode) }
-        Value::Sponge(_) => Err(EvalError::TypeError("absorb: cannot absorb a sponge".into())),
+        Value::ProverState(_) | Value::VerifierState(_) => Err(EvalError::TypeError("absorb: cannot absorb a sponge".into())),
     }
 }
 
@@ -2862,7 +2968,7 @@ mod tests {
         let prover = domsep.std_prover();
         let id = st.insert(prover);
         let mut env = empty_env();
-        env.insert(Symbol::from("s"), Value::Sponge(id));
+        env.insert(Symbol::from("s"), Value::ProverState(id));
         env
     }
 
@@ -2879,7 +2985,7 @@ mod tests {
             "(absorb_public Field s 42)",
             &env, &st,
         ).unwrap();
-        assert!(matches!(v, Value::Sponge(_)));
+        assert!(matches!(v, Value::ProverState(_)));
     }
 
     #[test]
@@ -2892,7 +2998,7 @@ mod tests {
         ).unwrap();
         let (challenge, new_sponge) = v.as_pair().unwrap();
         assert!(matches!(challenge, Value::Field(_)));
-        assert!(matches!(new_sponge, Value::Sponge(_)));
+        assert!(matches!(new_sponge, Value::ProverState(_)));
     }
 
     #[test]
@@ -2910,7 +3016,7 @@ mod tests {
         ).unwrap();
         let (c2, s_final) = v.as_pair().unwrap();
         assert!(matches!(c2, Value::Field(_)));
-        assert!(matches!(s_final, Value::Sponge(_)));
+        assert!(matches!(s_final, Value::ProverState(_)));
     }
 
     #[test]
@@ -2932,7 +3038,7 @@ mod tests {
             "(absorb_public Field s (array 1 2 3))",
             &env, &st,
         ).unwrap();
-        assert!(matches!(v, Value::Sponge(_)));
+        assert!(matches!(v, Value::ProverState(_)));
     }
 
     #[test]
@@ -2943,7 +3049,7 @@ mod tests {
             "(absorb_private Field s 99)",
             &env, &st,
         ).unwrap();
-        assert!(matches!(v, Value::Sponge(_)));
+        assert!(matches!(v, Value::ProverState(_)));
     }
 
     #[test]
@@ -2958,5 +3064,99 @@ mod tests {
             v.as_field().unwrap()
         }).collect();
         assert_eq!(challenges[0], challenges[1]);
+    }
+
+    // ── Verifier Tests ──
+
+    fn eval_str_with_verifier(s: &str, env: &Env, vt: &VerifierTable) -> Result<Value, EvalError> {
+        let expr: RecExpr<ArkLang> = s.parse().expect("parse failed");
+        eval_with_verifier(&expr, env, vt)
+    }
+
+    #[test]
+    fn test_prover_verifier_roundtrip() {
+        use spongefish::domain_separator;
+
+        let domsep = domain_separator!("roundtrip-test"; "asumpi-tests")
+            .instance(&0u32);
+
+        // Prover: absorb public value, absorb private witness, squeeze challenge
+        let st = SpongeTable::new();
+        let prover = domsep.std_prover();
+        let prover_id = st.insert(prover);
+        let mut prover_env = empty_env();
+        prover_env.insert(Symbol::from("s"), Value::ProverState(prover_id));
+
+        let prover_result = eval_str_with_sponge(
+            "(let s1 (absorb_public Field s 7) \
+               (let s2 (absorb_private Field s1 42) \
+                 (squeeze Field s2)))",
+            &prover_env, &st,
+        ).unwrap();
+        let (prover_challenge, final_prover) = prover_result.as_pair().unwrap();
+        let prover_challenge_fr = prover_challenge.as_field().unwrap();
+
+        // Extract NARG transcript from the final prover state
+        let prover_id = final_prover.as_prover_state().unwrap();
+        let final_prover_state = st.take(prover_id).unwrap();
+        let transcript = final_prover_state.narg_string().to_vec();
+
+        // Verifier: absorb same public value, read transcript, squeeze challenge
+        let vt = VerifierTable::new();
+        let vid = vt.insert_with(transcript, |t| domsep.std_verifier(t));
+        let mut verifier_env = empty_env();
+        verifier_env.insert(Symbol::from("vs"), Value::VerifierState(vid));
+
+        let verifier_result = eval_str_with_verifier(
+            "(let vs1 (absorb_public Field vs 7) \
+               (let r (read_transcript Field vs1) \
+                 (let _witness (fst r) \
+                   (let vs2 (snd r) \
+                     (squeeze Field vs2)))))",
+            &verifier_env, &vt,
+        ).unwrap();
+        let (verifier_challenge, _) = verifier_result.as_pair().unwrap();
+        let verifier_challenge_fr = verifier_challenge.as_field().unwrap();
+
+        // Prover and verifier must derive the same challenge
+        assert_eq!(prover_challenge_fr, verifier_challenge_fr);
+    }
+
+    #[test]
+    fn test_verify_pass() {
+        let v = eval_str("(verify (eq Field 3 3))", &empty_env()).unwrap();
+        assert_eq!(v, Value::Bool(true));
+    }
+
+    #[test]
+    fn test_verify_fail() {
+        let r = eval_str("(verify (eq Field 3 4))", &empty_env());
+        assert!(r.is_err());
+    }
+
+    #[test]
+    fn test_read_transcript_field() {
+        use spongefish::domain_separator;
+
+        let domsep = domain_separator!("read-test"; "asumpi-tests")
+            .instance(&0u32);
+
+        // Prover writes a field element
+        let mut prover = domsep.std_prover();
+        let val = Fr::from(99u64);
+        prover.prover_message(&val);
+        let transcript = prover.narg_string().to_vec();
+
+        // Verifier reads it back
+        let vt = VerifierTable::new();
+        let vid = vt.insert_with(transcript, |t| domsep.std_verifier(t));
+        let mut env = empty_env();
+        env.insert(Symbol::from("vs"), Value::VerifierState(vid));
+
+        let result = eval_str_with_verifier(
+            "(fst (read_transcript Field vs))",
+            &env, &vt,
+        ).unwrap();
+        assert_eq!(result, Value::Field(Fr::from(99u64)));
     }
 }

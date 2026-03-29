@@ -79,10 +79,14 @@ define_language! {
         "eq"      = Eq([Id; 3]),
 
         // ── Sponge (Fiat-Shamir) ──
-        "Sponge"         = TSponge,
-        "absorb_public"  = AbsorbPublic([Id; 3]),
-        "absorb_private" = AbsorbPrivate([Id; 3]),
-        "squeeze"        = Squeeze([Id; 2]),
+        "ProverState"      = TProverState,
+        "VerifierState"    = TVerifierState,
+        "absorb_public"    = AbsorbPublic([Id; 3]),
+        "absorb_private"   = AbsorbPrivate([Id; 3]),
+        "squeeze"          = Squeeze([Id; 2]),
+        "read_transcript"  = ReadTranscript([Id; 2]),
+        "verify"           = Verify([Id; 1]),
+        "check_eof"        = CheckEof([Id; 1]),
 
         // ── Variable Reference ──
         Symbol(egg::Symbol),
@@ -105,7 +109,8 @@ pub fn tag_to_type(node: &ArkLang) -> Option<ArkType> {
         ArkLang::TMVPoly    => Some(ArkType::MVPoly),
         ArkLang::TArray     => Some(ArkType::Array),
         ArkLang::TPair      => Some(ArkType::Pair),
-        ArkLang::TSponge    => Some(ArkType::Sponge),
+        ArkLang::TProverState    => Some(ArkType::ProverState),
+        ArkLang::TVerifierState  => Some(ArkType::VerifierState),
         _ => None,
     }
 }

@@ -10,15 +10,14 @@ use ark_poly::{
     MultilinearExtension, Polynomial as PolyTrait,
 };
 use spongefish::ProverState;
+use spongefish::VerifierState;
 use std::cell::RefCell;
 use std::fmt;
 
 /// Type alias for the default sponge hash function.
 pub type StdHash = spongefish::StdHash;
 
-/// Table of sponge states with linear ownership semantics.
-/// Each sponge is stored as `Option<ProverState>` — taking a sponge
-/// sets its slot to `None`, preventing reuse (linear resource).
+/// Table of prover sponge states with linear ownership semantics.
 pub struct SpongeTable {
     sponges: RefCell<Vec<Option<ProverState<StdHash>>>>,
 }
@@ -28,7 +27,6 @@ impl SpongeTable {
         Self { sponges: RefCell::new(Vec::new()) }
     }
 
-    /// Insert a new sponge, returning its handle index.
     pub fn insert(&self, sponge: ProverState<StdHash>) -> usize {
         let mut sponges = self.sponges.borrow_mut();
         let id = sponges.len();
@@ -36,15 +34,87 @@ impl SpongeTable {
         id
     }
 
-    /// Take a sponge out of the table (linear: can only be taken once).
     pub fn take(&self, id: usize) -> Result<ProverState<StdHash>, EvalError> {
         let mut sponges = self.sponges.borrow_mut();
         if id >= sponges.len() {
-            return Err(EvalError::TypeError(format!("invalid sponge handle #{}", id)));
+            return Err(EvalError::TypeError(format!("invalid prover sponge #{}", id)));
         }
         sponges[id].take().ok_or_else(|| {
-            EvalError::TypeError(format!("sponge #{} already consumed (linear resource)", id))
+            EvalError::TypeError(format!("prover sponge #{} already consumed (linear resource)", id))
         })
+    }
+}
+
+/// Table of verifier sponge states with linear ownership semantics.
+/// Owns the transcript data to satisfy VerifierState's lifetime.
+pub struct VerifierTable {
+    verifiers: RefCell<Vec<Option<VerifierState<'static, StdHash>>>>,
+    // Transcript data is leaked to 'static to satisfy VerifierState<'a>.
+    // This is safe because the table owns the data for the program's duration.
+    _transcripts: RefCell<Vec<Box<[u8]>>>,
+}
+
+impl VerifierTable {
+    pub fn new() -> Self {
+        Self {
+            verifiers: RefCell::new(Vec::new()),
+            _transcripts: RefCell::new(Vec::new()),
+        }
+    }
+
+    /// Insert a verifier state. The transcript bytes are owned by the table.
+    /// `init_sponge` should be a StdHash already initialized with protocol/session/instance
+    /// (e.g., via `StdHash::from_protocol_id` + public_message calls).
+    pub fn insert_from_parts(
+        &self, init_sponge: StdHash, transcript: Vec<u8>,
+    ) -> usize {
+        let boxed: Box<[u8]> = transcript.into_boxed_slice();
+        // SAFETY: We store the boxed slice in _transcripts, keeping it alive.
+        // The VerifierState borrows it for 'static because we never drop/move it.
+        let static_ref: &'static [u8] = unsafe {
+            std::slice::from_raw_parts(boxed.as_ptr(), boxed.len())
+        };
+        self._transcripts.borrow_mut().push(boxed);
+        let vs = VerifierState::from_parts(init_sponge, static_ref);
+        let mut verifiers = self.verifiers.borrow_mut();
+        let id = verifiers.len();
+        verifiers.push(Some(vs));
+        id
+    }
+
+    /// Insert a verifier by initializing from protocol/session/instance and transcript.
+    /// The caller constructs a verifier_fn that takes `&'static [u8]` and returns `VerifierState`.
+    pub fn insert_with<F>(&self, transcript: Vec<u8>, verifier_fn: F) -> usize
+    where
+        F: FnOnce(&'static [u8]) -> VerifierState<'static, StdHash>,
+    {
+        let boxed: Box<[u8]> = transcript.into_boxed_slice();
+        let static_ref: &'static [u8] = unsafe {
+            std::slice::from_raw_parts(boxed.as_ptr(), boxed.len())
+        };
+        self._transcripts.borrow_mut().push(boxed);
+        let vs = verifier_fn(static_ref);
+        let mut verifiers = self.verifiers.borrow_mut();
+        let id = verifiers.len();
+        verifiers.push(Some(vs));
+        id
+    }
+
+    pub fn take(&self, id: usize) -> Result<VerifierState<'static, StdHash>, EvalError> {
+        let mut verifiers = self.verifiers.borrow_mut();
+        if id >= verifiers.len() {
+            return Err(EvalError::TypeError(format!("invalid verifier sponge #{}", id)));
+        }
+        verifiers[id].take().ok_or_else(|| {
+            EvalError::TypeError(format!("verifier sponge #{} already consumed (linear resource)", id))
+        })
+    }
+
+    pub fn insert(&self, vs: VerifierState<'static, StdHash>) -> usize {
+        let mut verifiers = self.verifiers.borrow_mut();
+        let id = verifiers.len();
+        verifiers.push(Some(vs));
+        id
     }
 }
 
@@ -64,7 +134,8 @@ pub enum ArkType {
     ArrayOf(Box<ArkType>),
     Pair,
     Bool,
-    Sponge,
+    ProverState,
+    VerifierState,
     Unknown,
 }
 
@@ -93,8 +164,10 @@ pub enum Value {
     Bool(bool),
     /// Integer value (for indices, exponents, etc.)
     Int(i64),
-    /// Sponge handle (index into SpongeTable, linear resource)
-    Sponge(usize),
+    /// ProverState handle (index into SpongeTable, linear resource)
+    ProverState(usize),
+    /// VerifierState handle (index into VerifierTable, linear resource)
+    VerifierState(usize),
 }
 
 impl Value {
@@ -112,7 +185,8 @@ impl Value {
             Value::Pair(_, _) => ArkType::Pair,
             Value::Bool(_) => ArkType::Bool,
             Value::Int(_) => ArkType::Int,
-            Value::Sponge(_) => ArkType::Sponge,
+            Value::ProverState(_) => ArkType::ProverState,
+            Value::VerifierState(_) => ArkType::VerifierState,
         }
     }
 
@@ -238,12 +312,34 @@ impl Value {
         }
     }
 
-    /// Extract as sponge handle.
+    /// Extract as prover sponge handle.
+    pub fn as_prover_state(&self) -> Result<usize, EvalError> {
+        match self {
+            Value::ProverState(id) => Ok(*id),
+            _ => Err(EvalError::TypeError(format!(
+                "expected ProverState, got {}",
+                self.type_name()
+            ))),
+        }
+    }
+
+    /// Extract as verifier sponge handle.
+    pub fn as_verifier_state(&self) -> Result<usize, EvalError> {
+        match self {
+            Value::VerifierState(id) => Ok(*id),
+            _ => Err(EvalError::TypeError(format!(
+                "expected VerifierState, got {}",
+                self.type_name()
+            ))),
+        }
+    }
+
+    /// Extract as either prover or verifier sponge handle.
     pub fn as_sponge(&self) -> Result<usize, EvalError> {
         match self {
-            Value::Sponge(id) => Ok(*id),
+            Value::ProverState(id) | Value::VerifierState(id) => Ok(*id),
             _ => Err(EvalError::TypeError(format!(
-                "expected Sponge, got {}",
+                "expected ProverState or VerifierState, got {}",
                 self.type_name()
             ))),
         }
@@ -262,7 +358,8 @@ impl Value {
             Value::Pair(_, _) => "Pair",
             Value::Bool(_) => "Bool",
             Value::Int(_) => "Int",
-            Value::Sponge(_) => "Sponge",
+            Value::ProverState(_) => "ProverState",
+            Value::VerifierState(_) => "VerifierState",
         }
     }
 }
@@ -293,7 +390,8 @@ impl fmt::Display for Value {
             Value::Pair(a, b) => write!(f, "Pair({}, {})", a, b),
             Value::Bool(b) => write!(f, "Bool({})", b),
             Value::Int(n) => write!(f, "Int({})", n),
-            Value::Sponge(id) => write!(f, "Sponge(#{})", id),
+            Value::ProverState(id) => write!(f, "ProverState(#{})", id),
+            Value::VerifierState(id) => write!(f, "VerifierState(#{})", id),
         }
     }
 }
@@ -305,7 +403,8 @@ impl PartialEq for Value {
             (Value::Curve(a), Value::Curve(b)) => a.into_affine() == b.into_affine(),
             (Value::Bool(a), Value::Bool(b)) => a == b,
             (Value::Int(a), Value::Int(b)) => a == b,
-            (Value::Sponge(a), Value::Sponge(b)) => a == b,
+            (Value::ProverState(a), Value::ProverState(b)) => a == b,
+            (Value::VerifierState(a), Value::VerifierState(b)) => a == b,
             (Value::Array(a), Value::Array(b)) => a == b,
             (Value::Polynomial(a), Value::Polynomial(b)) => a.coeffs == b.coeffs,
             (Value::MLE(a), Value::MLE(b)) => a == b,

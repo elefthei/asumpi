@@ -252,19 +252,30 @@ impl Analysis<ArkLang> for TypeAnalysis {
             }
 
             // ── Sponge (Fiat-Shamir) ──
-            ArkLang::TSponge => {
+            ArkLang::TProverState | ArkLang::TVerifierState => {
                 // Type tag leaf — no type info, no free vars
             }
 
             ArkLang::AbsorbPublic([_t, sponge, val]) | ArkLang::AbsorbPrivate([_t, sponge, val]) => {
                 free_vars.extend(&cd(sponge).free_vars);
                 free_vars.extend(&cd(val).free_vars);
-                types.insert(ArkType::Sponge);
+                types.insert(ArkType::ProverState);
+                types.insert(ArkType::VerifierState);
             }
 
-            ArkLang::Squeeze([_t, sponge]) => {
+            ArkLang::Squeeze([_t, sponge]) | ArkLang::ReadTranscript([_t, sponge]) => {
                 free_vars.extend(&cd(sponge).free_vars);
                 types.insert(ArkType::Pair);
+            }
+
+            ArkLang::Verify([cond]) => {
+                free_vars.extend(&cd(cond).free_vars);
+                types.insert(ArkType::Bool);
+            }
+
+            ArkLang::CheckEof([sponge]) => {
+                free_vars.extend(&cd(sponge).free_vars);
+                types.insert(ArkType::Bool);
             }
         }
 
